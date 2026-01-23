@@ -8,6 +8,10 @@ interface UseAvailabilityReturn {
   setSelectedPhoneNumbers: (numbers: string[]) => void;
   goAvailable: (phoneNumbers?: string[]) => Promise<void>;
   goUnavailable: () => Promise<void>;
+  setBusy: () => Promise<void>;
+  setRinging: () => Promise<void>;
+  restoreAvailability: () => Promise<void>;
+  savePreferences: (phoneNumbers: string[]) => Promise<void>;
 }
 
 export function useAvailability(): UseAvailabilityReturn {
@@ -93,11 +97,89 @@ export function useAvailability(): UseAvailabilityReturn {
     }
   }, [getToken, clearHeartbeat]);
 
+  const setBusy = useCallback(async () => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return;
+
+      await fetch(`${API_BASE_URL}/availability/set-busy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+      console.log('[useAvailability] Set busy');
+    } catch (err) {
+      console.error('[useAvailability] Failed to set busy:', err);
+    }
+  }, [getToken]);
+
+  const setRinging = useCallback(async () => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return;
+
+      await fetch(`${API_BASE_URL}/availability/set-ringing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+      console.log('[useAvailability] Set ringing');
+    } catch (err) {
+      console.error('[useAvailability] Failed to set ringing:', err);
+    }
+  }, [getToken]);
+
+  const restoreAvailability = useCallback(async () => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return;
+
+      await fetch(`${API_BASE_URL}/availability/restore`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+      });
+      console.log('[useAvailability] Restored availability');
+    } catch (err) {
+      console.error('[useAvailability] Failed to restore availability:', err);
+    }
+  }, [getToken]);
+
+  const savePreferences = useCallback(async (phoneNumbers: string[]) => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return;
+
+      await fetch(`${API_BASE_URL}/availability/preferences`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ phoneNumbers }),
+      });
+      setSelectedPhoneNumbers(phoneNumbers);
+      console.log('[useAvailability] Saved preferences:', phoneNumbers);
+    } catch (err) {
+      console.error('[useAvailability] Failed to save preferences:', err);
+    }
+  }, [getToken]);
+
   return {
     isAvailable,
     selectedPhoneNumbers,
     setSelectedPhoneNumbers,
     goAvailable,
     goUnavailable,
+    setBusy,
+    setRinging,
+    restoreAvailability,
+    savePreferences,
   };
 }

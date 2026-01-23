@@ -80,7 +80,7 @@
       "title": "Availability Status Updates",
       "description": "Implement setBusy() (POST /api/availability/set-busy when on call), setRinging() (POST /api/availability/set-ringing on incoming call), restoreAvailability() (POST /api/availability/restore on app launch), and savePreferences() (PUT /api/availability/preferences when changing numbers).",
       "acceptance": "setBusy() called when call becomes active. setRinging() called on incoming invite. restoreAvailability() called on VoiceContext mount. savePreferences() called when user updates selected numbers. All include proper auth headers and handle errors.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 11,

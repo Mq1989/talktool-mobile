@@ -102,3 +102,13 @@
 - Files modified: `src/hooks/useAvailability.ts` (new), `prd.json`, `ralph-progress.txt`
 - Notes: Story 10 (Availability Status Updates) adds setBusy, setRinging, restoreAvailability, savePreferences to the same hook
 
+## Iteration 10 - Story ID: 10 - "Availability Status Updates"
+- Added setBusy(): POSTs to /api/availability/set-busy with Bearer auth (called when call becomes active)
+- Added setRinging(): POSTs to /api/availability/set-ringing with Bearer auth (called on incoming invite)
+- Added restoreAvailability(): POSTs to /api/availability/restore with Bearer auth (called on app launch)
+- Added savePreferences(phoneNumbers): PUTs to /api/availability/preferences with Bearer auth (called when user updates numbers)
+- All functions include proper error handling and logging
+- Updated UseAvailabilityReturn interface with all new functions
+- Files modified: `src/hooks/useAvailability.ts`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 11 (Token Refresh) needs a useEffect in VoiceContext for periodic re-registration
+
