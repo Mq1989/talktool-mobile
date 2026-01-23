@@ -56,7 +56,7 @@
       "title": "WebSocket Display Connection",
       "description": "Implement connectWebSocket() that connects to wss://BACKEND_URL/call/display?callSid={parentCallSid}. On open, send call.join message and start 25s heartbeat ping interval. Handle reconnection on close. Store socket in wsRef.",
       "acceptance": "connectWebSocket() creates WebSocket with correct URL, sends {type:'call.join', callSid} on open, starts setInterval for ping every 25s, stores ref. Cleanup clears interval and closes socket. Connection initiated when callSid is set.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 8,

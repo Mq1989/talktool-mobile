@@ -68,3 +68,14 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 7 (WebSocket Display Connection) requires implementing connectWebSocket() with heartbeat
 
+## Iteration 7 - Story ID: 7 - "WebSocket Display Connection"
+- Added wsRef and heartbeatIntervalRef refs for WebSocket management
+- Imported WS_BASE_URL from constants (wss://usetalktoolserver.ngrok.app)
+- Implemented connectWebSocket(sid): connects to /call/display?callSid={sid}, sends call.join on open, starts 25s heartbeat ping interval
+- Implemented disconnectWebSocket(): clears interval and closes socket
+- Added onclose handler with auto-reconnect (3s delay) if call is still active
+- Added useEffect to trigger connectWebSocket when callSid changes, with cleanup on unmount
+- Added handleWsMessage() placeholder (to be implemented in Story 8)
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 8 (WebSocket Message Handling) needs to flesh out handleWsMessage() with all message type handlers
+

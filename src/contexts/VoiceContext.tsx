@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import { AppState, AppStateStatus, Platform } from 'react-native';
 import { Audio } from 'expo-av';
 import { useAuth, useUser } from '@clerk/clerk-expo';
-import { API_BASE_URL } from '../utils/constants';
+import { API_BASE_URL, WS_BASE_URL } from '../utils/constants';
 import { getLocaleForLanguage, LanguageCode } from '../utils/languages';
 
 // Conditionally import Twilio Voice SDK (not available in Expo Go)
@@ -101,6 +101,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const voiceRef = useRef<any | null>(null);
   const parentCallSidRef = useRef<string | null>(null);
   const ringSoundRef = useRef<Audio.Sound | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // State
   const [callState, setCallState] = useState<CallState>('idle');
@@ -312,6 +314,85 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       console.error('[VoiceContext] Failed to create call record:', err);
     }
   };
+
+  const disconnectWebSocket = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  };
+
+  const connectWebSocket = (sid: string) => {
+    if (!sid) return;
+
+    // Clean up existing connection
+    disconnectWebSocket();
+
+    const wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
+    console.log('[VoiceContext] Connecting WebSocket:', wsUrl);
+
+    const socket = new WebSocket(wsUrl);
+
+    socket.onopen = () => {
+      console.log('[VoiceContext] WebSocket connected');
+      // Join the call room
+      socket.send(JSON.stringify({ type: 'call.join', callSid: sid }));
+
+      // Start heartbeat ping every 25s
+      heartbeatIntervalRef.current = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
+        }
+      }, 25000);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        handleWsMessage(msg);
+      } catch (err) {
+        console.warn('[VoiceContext] Failed to parse WebSocket message:', err);
+      }
+    };
+
+    socket.onclose = (event) => {
+      console.log('[VoiceContext] WebSocket closed:', event.code, event.reason);
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
+      // Reconnect if call is still active
+      if (callState === 'active' || callState === 'call-ringing') {
+        console.log('[VoiceContext] Attempting WebSocket reconnection...');
+        setTimeout(() => connectWebSocket(sid), 3000);
+      }
+    };
+
+    socket.onerror = (err) => {
+      console.error('[VoiceContext] WebSocket error:', err);
+    };
+
+    wsRef.current = socket;
+  };
+
+  // Placeholder for WebSocket message handler (implemented in Story 8)
+  const handleWsMessage = (_msg: any) => {
+    // Will be implemented in Story 8
+  };
+
+  // Connect WebSocket when callSid is set
+  useEffect(() => {
+    if (callSid && (callState === 'active' || callState === 'call-ringing')) {
+      connectWebSocket(callSid);
+    }
+    return () => {
+      disconnectWebSocket();
+    };
+  }, [callSid]);
 
   const setupCallEventListeners = (call: any) => {
     if (!Call) {
