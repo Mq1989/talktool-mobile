@@ -32,7 +32,7 @@
       "title": "Make Outbound Call",
       "description": "Implement startCall() that fetches a fresh access token, connects via voice.connect() with all parameters (To, repLang, customerLang, callerId, clerkUserId, orgId, translateInitially, initialMessage, initialMessageOriginal), sets up callInfo and call event listeners.",
       "acceptance": "startCall() resets transcript, sets callState to 'dialing', fetches token, calls voice.connect() with full params object, stores activeCall, sets callInfo with direction 'outbound', attaches call event listeners. Errors are caught and state reset to idle.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 5,

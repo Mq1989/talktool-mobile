@@ -361,9 +361,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      setCallState('connecting');
       setError(null);
       clearTranscripts();
+      setCallStartTime(null);
 
       console.log('[VoiceContext] Getting Clerk auth token...');
       const authToken = await getToken();
@@ -405,6 +405,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       console.log('[VoiceContext] Twilio access token obtained, length:', twilioToken.length);
 
+      setCallState('dialing');
+
       // Convert language codes to locale codes for STT
       const repLang = getLocaleForLanguage(params.fromLanguage);
       const customerLang = getLocaleForLanguage(params.toLanguage);
@@ -435,9 +437,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       console.log('[VoiceContext] voiceRef.current.connect() returned, call:', call ? 'exists' : 'null');
 
       setActiveCall(call);
+
+      // Set call info (will be updated with parentCallSid when Connected event fires)
+      setCallInfo({
+        direction: 'outbound',
+        from: params.fromNumber,
+        to: params.toNumber,
+        callSid: call.getSid?.() || null,
+      });
+
+      // Set up call event listeners
       setupCallEventListeners(call);
-      setCallState('ringing');
-      console.log('[VoiceContext] Call state set to ringing');
+      console.log('[VoiceContext] Outbound call initiated, waiting for events');
     } catch (err) {
       console.error('[VoiceContext] Failed to make call:', err);
       setError(err instanceof Error ? err.message : 'Failed to make call');

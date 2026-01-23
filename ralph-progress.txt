@@ -37,3 +37,13 @@
 - Files modified: `prd.json`, `ralph-progress.txt`
 - Notes: Implementation was already complete from iteration 1 scaffolding. Story 4 (Make Outbound Call) needs startCall() to be enhanced with dialing state, callInfo, and full spec compliance
 
+## Iteration 4 - Story ID: 4 - "Make Outbound Call"
+- Updated makeCall() to set callState to 'dialing' (was 'connecting') after token fetch, matching spec
+- Added callInfo with direction 'outbound', from (fromNumber), to (toNumber), callSid from call.getSid()
+- Removed premature setCallState('ringing') — ringing is now handled by call event listeners (Story 5)
+- Reset callStartTime to null at start (will be set on Connected event in Story 5)
+- All call params already correctly passed: To, callerId, repLang, customerLang, clerkUserId, orgId, translateInitially, initialMessage, initialMessageOriginal
+- Errors caught and state reset to idle
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 5 (Active Call Event Listeners) needs setupCallEventListeners() enhanced with parentCallSid extraction, call-ringing state, and createCallRecord()
+
