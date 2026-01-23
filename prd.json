@@ -72,7 +72,7 @@
       "title": "Availability Toggle and Heartbeat",
       "description": "Implement goAvailable() that POSTs to /api/availability/set-available-multi with selected phone numbers, goUnavailable() that POSTs to /api/availability/set-unavailable-all, and a 30s heartbeat interval that POSTs to /api/availability/heartbeat-multi while available.",
       "acceptance": "goAvailable() POSTs selected numbers, sets isAvailable true, starts heartbeat interval. goUnavailable() POSTs to set-unavailable-all, sets isAvailable false, clears heartbeat. Heartbeat sends POST every 30s with selected numbers. All include Bearer auth header.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 10,

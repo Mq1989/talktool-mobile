@@ -93,3 +93,12 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 9 (Availability Toggle and Heartbeat) needs a new hook or additions to VoiceContext
 
+## Iteration 9 - Story ID: 9 - "Availability Toggle and Heartbeat"
+- Created new `src/hooks/useAvailability.ts` hook
+- goAvailable(phoneNumbers?): POSTs to /api/availability/set-available-multi with Bearer auth, sets isAvailable true, starts 30s heartbeat interval
+- goUnavailable(): POSTs to /api/availability/set-unavailable-all with Bearer auth, sets isAvailable false, clears heartbeat
+- Heartbeat: setInterval every 30s POSTs to /api/availability/heartbeat-multi with selected phone numbers
+- Exposes isAvailable, selectedPhoneNumbers, setSelectedPhoneNumbers, goAvailable, goUnavailable
+- Files modified: `src/hooks/useAvailability.ts` (new), `prd.json`, `ralph-progress.txt`
+- Notes: Story 10 (Availability Status Updates) adds setBusy, setRinging, restoreAvailability, savePreferences to the same hook
+
