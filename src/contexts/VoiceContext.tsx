@@ -590,16 +590,16 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   }, [incomingCallInvite, getToken]);
 
   const hangUp = useCallback(async () => {
-    if (activeCall) {
-      try {
-        await activeCall.disconnect();
-      } catch (err) {
-        console.error('Failed to disconnect call:', err);
-      }
+    if (!activeCall) return;
+
+    try {
+      await activeCall.disconnect();
+    } catch (err) {
+      console.error('[VoiceContext] Failed to disconnect call:', err);
     }
     setActiveCall(null);
-    setCallState('idle');
-    setCallSid(null);
+    setCallState('ended');
+    setIsMuted(false);
   }, [activeCall]);
 
   const toggleMute = useCallback(() => {

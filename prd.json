@@ -48,7 +48,7 @@
       "title": "Mute Toggle, DTMF, and End Call",
       "description": "Implement toggleMute() using activeCall.mute(), sendDigits() using activeCall.sendDigits(), and endCall() using activeCall.disconnect(). All check for activeCall existence first.",
       "acceptance": "toggleMute() calls activeCall.mute(!isMuted) and updates isMuted state. sendDigits(digits) calls activeCall.sendDigits(). endCall() calls activeCall.disconnect(), nulls activeCall, sets callState 'ended', resets isMuted. All guard against null activeCall.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 7,

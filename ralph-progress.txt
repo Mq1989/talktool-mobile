@@ -60,3 +60,11 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 6 (Mute/DTMF/EndCall) - toggleMute and sendDigits already exist, endCall needs to match spec exactly
 
+## Iteration 6 - Story ID: 6 - "Mute Toggle, DTMF, and End Call"
+- toggleMute() already correct: guards null, calls activeCall.mute(!isMuted), updates isMuted state
+- sendDigits() already correct: guards null, calls activeCall.sendDigits(digits)
+- Updated hangUp() (endCall): now guards against null activeCall with early return, calls disconnect(), nulls activeCall, sets callState 'ended', resets isMuted
+- Removed callSid reset from hangUp() and changed from 'idle' to 'ended' to match spec
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 7 (WebSocket Display Connection) requires implementing connectWebSocket() with heartbeat
+
