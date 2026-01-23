@@ -64,7 +64,7 @@
       "title": "WebSocket Message Handling",
       "description": "Handle all incoming WebSocket message types: transcript (append to array), call-initiated/call-ringing/call-answered (update callState, store languages, set isTranslating), end-call (set ended), toggle-translation.ack (update isTranslating), translation-state-sync (sync state on connect).",
       "acceptance": "onmessage handler parses JSON and dispatches by type. transcript messages append to transcript state array. call-answered sets 'active' and stores language info. end-call sets 'ended'. toggle-translation.ack toggles isTranslating. translation-state-sync sets initial translation state.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 9,

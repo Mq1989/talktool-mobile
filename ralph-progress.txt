@@ -79,3 +79,17 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 8 (WebSocket Message Handling) needs to flesh out handleWsMessage() with all message type handlers
 
+## Iteration 8 - Story ID: 8 - "WebSocket Message Handling"
+- Implemented full handleWsMessage() switch dispatcher for all message types:
+  - transcript: builds TranscriptMessage from msg fields, appends to transcripts state
+  - call-initiated: sets callState 'dialing'
+  - call-ringing: sets callState 'call-ringing'
+  - call-answered: sets 'active', stores languages (srcLang/dstLang), sets isTranslating
+  - end-call: sets callState 'ended'
+  - toggle-translation.ack: updates isTranslating from msg.isTranslating
+  - translation-state-sync: syncs isTranslating and callLanguages on initial connect
+  - call.join.ack, pong: acknowledged silently
+- Transcript maps msg.from ('rep'/'customer') to speaker ('user'/'remote')
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 9 (Availability Toggle and Heartbeat) needs a new hook or additions to VoiceContext
+

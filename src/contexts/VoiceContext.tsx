@@ -379,9 +379,79 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     wsRef.current = socket;
   };
 
-  // Placeholder for WebSocket message handler (implemented in Story 8)
-  const handleWsMessage = (_msg: any) => {
-    // Will be implemented in Story 8
+  const handleWsMessage = (msg: any) => {
+    switch (msg.type) {
+      case 'transcript': {
+        const transcript: TranscriptMessage = {
+          id: `${msg.time || Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          callSid: msg.callSid || callSid || '',
+          speaker: msg.from === 'rep' ? 'user' : 'remote',
+          originalText: msg.original || '',
+          translatedText: msg.translation || '',
+          originalLanguage: msg.from === 'rep' ? (callLanguages?.srcLang || '') : (callLanguages?.dstLang || ''),
+          targetLanguage: msg.from === 'rep' ? (callLanguages?.dstLang || '') : (callLanguages?.srcLang || ''),
+          timestamp: new Date(msg.time || Date.now()),
+        };
+        setTranscripts(prev => [...prev, transcript]);
+        break;
+      }
+
+      case 'call-initiated':
+        console.log('[VoiceContext] WS: call-initiated');
+        setCallState('dialing');
+        break;
+
+      case 'call-ringing':
+        console.log('[VoiceContext] WS: call-ringing');
+        setCallState('call-ringing');
+        break;
+
+      case 'call-answered':
+        console.log('[VoiceContext] WS: call-answered', msg);
+        setCallState('active');
+        if (msg.srcLang || msg.dstLang) {
+          setCallLanguages({
+            srcLang: msg.srcLang || callLanguages?.srcLang || 'en-US',
+            dstLang: msg.dstLang || callLanguages?.dstLang || 'en-US',
+          });
+        }
+        if (msg.isTranslating !== undefined) {
+          setIsTranslating(Boolean(msg.isTranslating));
+        }
+        break;
+
+      case 'end-call':
+        console.log('[VoiceContext] WS: end-call', msg.reason);
+        setCallState('ended');
+        break;
+
+      case 'toggle-translation.ack':
+        console.log('[VoiceContext] WS: toggle-translation.ack', msg.isTranslating);
+        setIsTranslating(Boolean(msg.isTranslating));
+        break;
+
+      case 'translation-state-sync':
+        console.log('[VoiceContext] WS: translation-state-sync', msg);
+        setIsTranslating(Boolean(msg.isTranslating));
+        if (msg.srcLang || msg.dstLang) {
+          setCallLanguages({
+            srcLang: msg.srcLang || callLanguages?.srcLang || 'en-US',
+            dstLang: msg.dstLang || callLanguages?.dstLang || 'en-US',
+          });
+        }
+        break;
+
+      case 'call.join.ack':
+        console.log('[VoiceContext] WS: Joined call room');
+        break;
+
+      case 'pong':
+        // Heartbeat response, no action needed
+        break;
+
+      default:
+        console.log('[VoiceContext] WS: Unknown message type:', msg.type);
+    }
   };
 
   // Connect WebSocket when callSid is set
