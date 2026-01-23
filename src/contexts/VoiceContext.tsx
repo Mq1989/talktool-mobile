@@ -85,6 +85,7 @@ interface VoiceContextType {
   addTranscript: (transcript: TranscriptMessage) => void;
   clearTranscripts: () => void;
   clearError: () => void;
+  configureIntroduction: (message: string, customerLang: string, repLang: string) => Promise<{ translatedMessage: string; introductionId: string } | null>;
   testVoiceSetup: () => Promise<{ success: boolean; message: string }>;
 }
 
@@ -820,6 +821,45 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  const configureIntroduction = useCallback(async (
+    message: string,
+    customerLang: string,
+    repLang: string,
+  ): Promise<{ translatedMessage: string; introductionId: string } | null> => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return null;
+
+      const response = await fetch(`${API_BASE_URL}/introduction`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          message,
+          lang: customerLang,
+          sourceLang: repLang,
+          save: true,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('[VoiceContext] Introduction translation failed:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+      return {
+        translatedMessage: data.text || '',
+        introductionId: data.introductionId || '',
+      };
+    } catch (err) {
+      console.error('[VoiceContext] Failed to configure introduction:', err);
+      return null;
+    }
+  }, [getToken]);
+
   const testVoiceSetup = useCallback(async (): Promise<{ success: boolean; message: string }> => {
     console.log('[VoiceContext] === RUNNING TEST ===');
 
@@ -940,6 +980,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     addTranscript,
     clearTranscripts,
     clearError,
+    configureIntroduction,
     testVoiceSetup,
   };
 

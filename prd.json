@@ -96,7 +96,7 @@
       "title": "Introduction Message Pre-call Translation",
       "description": "Implement configureIntroduction() that POSTs to /api/introduction with message, lang (customerLang), sourceLang (repLang), and save:true. Returns the translated text and introductionId for use in startCall().",
       "acceptance": "configureIntroduction(message, customerLang, repLang) POSTs to /api/introduction with proper body and auth header, returns {translatedMessage, introductionId}. The translated message is passed as initialMessage param to startCall().",
-      "passes": false
+      "passes": true
     }
   ]
 }

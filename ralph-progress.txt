@@ -120,3 +120,12 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 12 (Introduction Message) needs configureIntroduction() function
 
+## Iteration 12 - Story ID: 12 - "Introduction Message Pre-call Translation"
+- Implemented configureIntroduction(message, customerLang, repLang) in VoiceContext
+- POSTs to /api/introduction with { message, lang: customerLang, sourceLang: repLang, save: true }
+- Returns { translatedMessage, introductionId } on success, null on failure
+- Added to VoiceContextType interface and context value
+- The returned translatedMessage can be passed as initialMessage param to makeCall()
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- ALL STORIES COMPLETE
+
