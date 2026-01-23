@@ -287,6 +287,32 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setCallState('idle');
   };
 
+  const createCallRecord = async (effectiveCallSid: string) => {
+    try {
+      const authToken = await getToken();
+      if (!authToken) return;
+
+      await fetch(`${API_BASE_URL}/api/calls/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          callSid: effectiveCallSid,
+          from: callInfo?.from || '',
+          to: callInfo?.to || '',
+          direction: callInfo?.direction || 'outbound',
+          repLang: callLanguages?.srcLang || 'en-US',
+          customerLang: callLanguages?.dstLang || 'en-US',
+        }),
+      });
+      console.log('[VoiceContext] Call record created for:', effectiveCallSid);
+    } catch (err) {
+      console.error('[VoiceContext] Failed to create call record:', err);
+    }
+  };
+
   const setupCallEventListeners = (call: any) => {
     if (!Call) {
       console.warn('[VoiceContext] Call class not available, cannot set up event listeners');
@@ -295,12 +321,39 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
     console.log('[VoiceContext] Setting up call event listeners');
 
+    // Call connected (equivalent to 'accept' event on web)
     call.on(Call.Event.Connected, () => {
       console.log('[VoiceContext] Event: Call connected');
       setCallState('active');
-      const sid = call.getSid();
-      console.log('[VoiceContext] Call SID:', sid);
-      if (sid) setCallSid(sid);
+      setCallStartTime(Date.now());
+
+      // Get parentCallSid from custom parameters (sent by backend on outbound calls)
+      const customParams = call.getCustomParameters?.() || {};
+      const parentCallSid = customParams.parentCallSid || parentCallSidRef.current;
+      const effectiveCallSid = parentCallSid || call.getSid();
+
+      // Store parentCallSid for WebSocket and API calls
+      if (parentCallSid) {
+        parentCallSidRef.current = parentCallSid;
+      }
+
+      console.log('[VoiceContext] Effective callSid:', effectiveCallSid);
+      setCallSid(effectiveCallSid);
+      setCallInfo(prev => prev ? { ...prev, callSid: effectiveCallSid } : {
+        direction: 'outbound',
+        from: '',
+        to: '',
+        callSid: effectiveCallSid,
+      });
+
+      // Create call record on backend
+      createCallRecord(effectiveCallSid);
+    });
+
+    // Call ringing (remote party is being called)
+    call.on(Call.Event.Ringing, () => {
+      console.log('[VoiceContext] Event: Call ringing');
+      setCallState('call-ringing');
     });
 
     call.on(Call.Event.Reconnecting, () => {
@@ -313,28 +366,20 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setCallState('active');
     });
 
+    // Call disconnected
     call.on(Call.Event.Disconnected, (err: any) => {
-      console.log('[VoiceContext] Event: Call disconnected', err ? `Error: ${JSON.stringify(err)}` : '(no error)');
-      setCallState('ended');
+      console.log('[VoiceContext] Event: Call disconnected', err ? `Error: ${JSON.stringify(err)}` : '');
       setActiveCall(null);
-      setCallSid(null);
+      setCallState('ended');
       setIsMuted(false);
-      setIsSpeakerOn(false);
-
-      // Reset to idle after a short delay
-      setTimeout(() => setCallState('idle'), 2000);
     });
 
+    // Connect failure
     call.on(Call.Event.ConnectFailure, (err: any) => {
       console.error('[VoiceContext] Event: Call connect failure:', err);
       setError(err?.message || 'Failed to connect call');
       setCallState('idle');
       setActiveCall(null);
-    });
-
-    // Add Ringing event listener
-    call.on(Call.Event.Ringing, () => {
-      console.log('[VoiceContext] Event: Call ringing (remote party is being called)');
     });
 
     console.log('[VoiceContext] Call event listeners set up complete');

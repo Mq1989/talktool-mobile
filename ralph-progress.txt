@@ -47,3 +47,16 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 5 (Active Call Event Listeners) needs setupCallEventListeners() enhanced with parentCallSid extraction, call-ringing state, and createCallRecord()
 
+## Iteration 5 - Story ID: 5 - "Active Call Event Listeners"
+- Rewrote setupCallEventListeners() with full spec compliance:
+  - Connected: sets 'active', records callStartTime, extracts parentCallSid from call.getCustomParameters(), updates callSid and callInfo, calls createCallRecord()
+  - Ringing: sets callState to 'call-ringing'
+  - Disconnected: nulls activeCall, sets 'ended', resets isMuted
+  - ConnectFailure: logs error, sets 'idle', nulls activeCall
+  - Reconnecting/Reconnected: maintained from before
+- Added createCallRecord() helper that POSTs to /api/calls/create with callSid, from, to, direction, repLang, customerLang
+- Removed the setTimeout idle reset from Disconnected (not in spec)
+- Removed isSpeakerOn reset from Disconnected (not in spec)
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 6 (Mute/DTMF/EndCall) - toggleMute and sendDigits already exist, endCall needs to match spec exactly
+

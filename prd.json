@@ -40,7 +40,7 @@
       "title": "Active Call Event Listeners",
       "description": "Implement setupCallEventListeners(call) that registers handlers for Call.Event.Connected (set active, extract parentCallSid, create call record), Call.Event.Ringing (set call-ringing), Call.Event.Disconnected (cleanup, set ended), and Call.Event.ConnectFailure (error log, reset to idle).",
       "acceptance": "setupCallEventListeners registers all four event handlers. Connected handler sets callState 'active', extracts parentCallSid from getCustomParameters(), updates callSid and callInfo, calls createCallRecord(). Ringing sets 'call-ringing'. Disconnected nulls activeCall, sets 'ended', resets mute. ConnectFailure logs error, sets idle, nulls activeCall.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 6,
