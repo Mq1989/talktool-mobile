@@ -16,7 +16,7 @@
       "title": "Accept Incoming Call",
       "description": "Implement acceptIncomingCall() that accepts the call invite, sets up active call state, extracts parentCallSid, sets translation state from custom params, populates callInfo with direction/from/to/callSid, and calls setupCallEventListeners().",
       "acceptance": "acceptIncomingCall() stops ring, resets transcript, records start time, accepts invite via .accept(), sets callState to 'active', extracts effective callSid (parentCallSid or call.getSid()), sets callInfo and callSid state, attaches call event listeners.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 3,

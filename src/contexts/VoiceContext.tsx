@@ -452,13 +452,40 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      setCallState('connecting');
+      // Stop ring and reset transcript
+      stopIncomingRing();
+      setTranscripts([]);
+      setCallStartTime(Date.now());
+
+      // Accept the call
       const call = await incomingCallInvite.accept();
       setActiveCall(call);
+      setCallState('active');
+
+      // Extract parentCallSid from custom parameters
+      const customParams = incomingCallInvite.getCustomParameters?.() || incomingCallInvite.customParameters || {};
+      const parentCallSid = parentCallSidRef.current || customParams.parentCallSid;
+      const effectiveCallSid = parentCallSid || call.getSid();
+
+      // Set translation state from custom params
+      const shouldTranslate = customParams.isTranslating === 'true';
+      setIsTranslating(shouldTranslate);
+
+      // Set call info
+      setCallInfo({
+        direction: 'inbound',
+        from: customParams.incomingNumber || 'Unknown',
+        to: '',
+        callSid: effectiveCallSid,
+      });
+      setCallSid(effectiveCallSid);
+
+      // Set up call event listeners
       setupCallEventListeners(call);
+
       setIncomingCallInvite(null);
     } catch (err) {
-      console.error('Failed to accept call:', err);
+      console.error('[VoiceContext] Failed to accept call:', err);
       setError(err instanceof Error ? err.message : 'Failed to accept call');
       setCallState('idle');
       setIncomingCallInvite(null);

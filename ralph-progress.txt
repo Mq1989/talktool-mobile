@@ -14,3 +14,18 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `assets/ringtone.mp3`, `prd.json`
 - Notes: The `acceptIncomingCall` will be enhanced in Story 2 to use parentCallSidRef and callLanguages
 
+## Iteration 2 - Story ID: 2 - "Accept Incoming Call"
+- Enhanced `acceptIncomingCall()` to match the full spec from call-make.md Step 5a
+- Stops incoming ring sound before accepting
+- Resets transcripts and records call start time (Date.now())
+- Accepts invite via `incomingCallInvite.accept()`
+- Sets callState to 'active' immediately after accept
+- Extracts effective callSid: parentCallSidRef.current || customParams.parentCallSid || call.getSid()
+- Sets isTranslating based on customParams.isTranslating === 'true'
+- Populates callInfo with direction 'inbound', from (incomingNumber), to (''), and callSid
+- Sets callSid state with the effective callSid
+- Attaches call event listeners via setupCallEventListeners(call)
+- Clears incomingCallInvite after setup
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 3 (Reject/Voicemail) is already scaffolded from iteration 1, just needs verification
+
