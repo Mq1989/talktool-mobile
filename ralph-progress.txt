@@ -1,0 +1,16 @@
+# Ralph Loop Progress Log
+
+## Iteration 1 - Story ID: 1 - "Incoming Call Event Listeners"
+- Implemented enhanced `handleIncomingCall` that extracts custom parameters (parentCallSid, srcLang, dstLang, incomingNumber, isTranslating) from CallInvite
+- Added `parentCallSidRef` to store the session key for backend communication
+- Added `callLanguages`, `callInfo`, `callStartTime`, `isTranslating` state fields
+- Added `CallInfo` and `CallLanguages` exported interfaces
+- Extended `CallState` type with 'incoming', 'dialing', 'call-ringing' states
+- Implemented `playIncomingRing()` and `stopIncomingRing()` using expo-av Audio
+- Created `assets/ringtone.mp3` placeholder audio file
+- Updated `handleCancelledInvite` to call `stopIncomingRing()` and reset state
+- Added `sendToVoicemail()` and `sendDigits()` to context (scaffolded for later stories)
+- Used `Voice.Event.CancelledCallInvite` instead of string literal for event registration
+- Files modified: `src/contexts/VoiceContext.tsx`, `assets/ringtone.mp3`, `prd.json`
+- Notes: The `acceptIncomingCall` will be enhanced in Story 2 to use parentCallSidRef and callLanguages
+

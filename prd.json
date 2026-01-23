@@ -1,0 +1,102 @@
+{
+  "project": "TalkTool Mobile - Twilio Voice Integration",
+  "description": "Implement full Twilio Voice SDK integration for iOS, covering incoming/outbound calls, WebSocket transcription, availability management, and supporting features.",
+  "stories": [
+    {
+      "id": 1,
+      "step": "Step 4",
+      "title": "Incoming Call Event Listeners",
+      "description": "Register Voice.Event.CallInvite and Voice.Event.CancelledCallInvite listeners on the Voice SDK instance. Extract custom parameters (parentCallSid, srcLang, dstLang, incomingNumber, isTranslating) from the call invite and update VoiceContext state (callState, callLanguages, incomingCallInvite). Play incoming ring sound on invite, stop ring on cancel.",
+      "acceptance": "VoiceContext registers both event listeners in setupEventListeners(). CallInvite handler extracts all custom params, sets callState to 'incoming', stores parentCallSid in ref. CancelledCallInvite handler resets state to idle and stops ring.",
+      "passes": true
+    },
+    {
+      "id": 2,
+      "step": "Step 5a",
+      "title": "Accept Incoming Call",
+      "description": "Implement acceptIncomingCall() that accepts the call invite, sets up active call state, extracts parentCallSid, sets translation state from custom params, populates callInfo with direction/from/to/callSid, and calls setupCallEventListeners().",
+      "acceptance": "acceptIncomingCall() stops ring, resets transcript, records start time, accepts invite via .accept(), sets callState to 'active', extracts effective callSid (parentCallSid or call.getSid()), sets callInfo and callSid state, attaches call event listeners.",
+      "passes": false
+    },
+    {
+      "id": 3,
+      "step": "Step 5b",
+      "title": "Reject Call and Send to Voicemail",
+      "description": "Implement rejectIncomingCall() and sendToVoicemail(). Reject simply rejects the invite. Voicemail rejects and then POSTs to /api/calls/send-to-voicemail with the parentCallSid.",
+      "acceptance": "rejectIncomingCall() stops ring, rejects invite, resets state. sendToVoicemail() stops ring, rejects invite, POSTs parentCallSid to /api/calls/send-to-voicemail with auth header, resets state.",
+      "passes": false
+    },
+    {
+      "id": 4,
+      "step": "Step 6",
+      "title": "Make Outbound Call",
+      "description": "Implement startCall() that fetches a fresh access token, connects via voice.connect() with all parameters (To, repLang, customerLang, callerId, clerkUserId, orgId, translateInitially, initialMessage, initialMessageOriginal), sets up callInfo and call event listeners.",
+      "acceptance": "startCall() resets transcript, sets callState to 'dialing', fetches token, calls voice.connect() with full params object, stores activeCall, sets callInfo with direction 'outbound', attaches call event listeners. Errors are caught and state reset to idle.",
+      "passes": false
+    },
+    {
+      "id": 5,
+      "step": "Step 7",
+      "title": "Active Call Event Listeners",
+      "description": "Implement setupCallEventListeners(call) that registers handlers for Call.Event.Connected (set active, extract parentCallSid, create call record), Call.Event.Ringing (set call-ringing), Call.Event.Disconnected (cleanup, set ended), and Call.Event.ConnectFailure (error log, reset to idle).",
+      "acceptance": "setupCallEventListeners registers all four event handlers. Connected handler sets callState 'active', extracts parentCallSid from getCustomParameters(), updates callSid and callInfo, calls createCallRecord(). Ringing sets 'call-ringing'. Disconnected nulls activeCall, sets 'ended', resets mute. ConnectFailure logs error, sets idle, nulls activeCall.",
+      "passes": false
+    },
+    {
+      "id": 6,
+      "step": "Step 8",
+      "title": "Mute Toggle, DTMF, and End Call",
+      "description": "Implement toggleMute() using activeCall.mute(), sendDigits() using activeCall.sendDigits(), and endCall() using activeCall.disconnect(). All check for activeCall existence first.",
+      "acceptance": "toggleMute() calls activeCall.mute(!isMuted) and updates isMuted state. sendDigits(digits) calls activeCall.sendDigits(). endCall() calls activeCall.disconnect(), nulls activeCall, sets callState 'ended', resets isMuted. All guard against null activeCall.",
+      "passes": false
+    },
+    {
+      "id": 7,
+      "step": "Step 9a",
+      "title": "WebSocket Display Connection",
+      "description": "Implement connectWebSocket() that connects to wss://BACKEND_URL/call/display?callSid={parentCallSid}. On open, send call.join message and start 25s heartbeat ping interval. Handle reconnection on close. Store socket in wsRef.",
+      "acceptance": "connectWebSocket() creates WebSocket with correct URL, sends {type:'call.join', callSid} on open, starts setInterval for ping every 25s, stores ref. Cleanup clears interval and closes socket. Connection initiated when callSid is set.",
+      "passes": false
+    },
+    {
+      "id": 8,
+      "step": "Step 9b",
+      "title": "WebSocket Message Handling",
+      "description": "Handle all incoming WebSocket message types: transcript (append to array), call-initiated/call-ringing/call-answered (update callState, store languages, set isTranslating), end-call (set ended), toggle-translation.ack (update isTranslating), translation-state-sync (sync state on connect).",
+      "acceptance": "onmessage handler parses JSON and dispatches by type. transcript messages append to transcript state array. call-answered sets 'active' and stores language info. end-call sets 'ended'. toggle-translation.ack toggles isTranslating. translation-state-sync sets initial translation state.",
+      "passes": false
+    },
+    {
+      "id": 9,
+      "step": "Step 10a",
+      "title": "Availability Toggle and Heartbeat",
+      "description": "Implement goAvailable() that POSTs to /api/availability/set-available-multi with selected phone numbers, goUnavailable() that POSTs to /api/availability/set-unavailable-all, and a 30s heartbeat interval that POSTs to /api/availability/heartbeat-multi while available.",
+      "acceptance": "goAvailable() POSTs selected numbers, sets isAvailable true, starts heartbeat interval. goUnavailable() POSTs to set-unavailable-all, sets isAvailable false, clears heartbeat. Heartbeat sends POST every 30s with selected numbers. All include Bearer auth header.",
+      "passes": false
+    },
+    {
+      "id": 10,
+      "step": "Step 10b",
+      "title": "Availability Status Updates",
+      "description": "Implement setBusy() (POST /api/availability/set-busy when on call), setRinging() (POST /api/availability/set-ringing on incoming call), restoreAvailability() (POST /api/availability/restore on app launch), and savePreferences() (PUT /api/availability/preferences when changing numbers).",
+      "acceptance": "setBusy() called when call becomes active. setRinging() called on incoming invite. restoreAvailability() called on VoiceContext mount. savePreferences() called when user updates selected numbers. All include proper auth headers and handle errors.",
+      "passes": false
+    },
+    {
+      "id": 11,
+      "step": "Step 11",
+      "title": "Token Refresh",
+      "description": "Implement periodic token refresh that fetches a new access token and re-registers with the Voice SDK every 10 minutes while status is 'registered'.",
+      "acceptance": "useEffect with status dependency sets up 10-minute setInterval that calls fetchAccessToken() then voice.register(newToken). Interval cleared on cleanup or when status changes from 'registered'. Errors are caught and logged.",
+      "passes": false
+    },
+    {
+      "id": 12,
+      "step": "Step 12",
+      "title": "Introduction Message Pre-call Translation",
+      "description": "Implement configureIntroduction() that POSTs to /api/introduction with message, lang (customerLang), sourceLang (repLang), and save:true. Returns the translated text and introductionId for use in startCall().",
+      "acceptance": "configureIntroduction(message, customerLang, repLang) POSTs to /api/introduction with proper body and auth header, returns {translatedMessage, introductionId}. The translated message is passed as initialMessage param to startCall().",
+      "passes": false
+    }
+  ]
+}
