@@ -88,7 +88,7 @@
       "title": "Token Refresh",
       "description": "Implement periodic token refresh that fetches a new access token and re-registers with the Voice SDK every 10 minutes while status is 'registered'.",
       "acceptance": "useEffect with status dependency sets up 10-minute setInterval that calls fetchAccessToken() then voice.register(newToken). Interval cleared on cleanup or when status changes from 'registered'. Errors are caught and logged.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 12,

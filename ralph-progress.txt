@@ -112,3 +112,11 @@
 - Files modified: `src/hooks/useAvailability.ts`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 11 (Token Refresh) needs a useEffect in VoiceContext for periodic re-registration
 
+## Iteration 11 - Story ID: 11 - "Token Refresh"
+- Added useEffect with isRegistered dependency that sets up 10-minute setInterval
+- On each interval: fetches fresh Clerk token, POSTs to /accessToken for new Twilio token, calls voice.register(newToken)
+- Interval cleared on cleanup or when isRegistered becomes false
+- Errors caught and logged without disrupting call state
+- Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
+- Notes: Story 12 (Introduction Message) needs configureIntroduction() function
+

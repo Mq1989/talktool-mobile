@@ -221,6 +221,41 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isSignedIn]);
 
+  // Periodic token refresh every 10 minutes when registered
+  useEffect(() => {
+    if (!isRegistered) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const authToken = await getToken();
+        if (!authToken || !voiceRef.current) return;
+
+        const response = await fetch(`${API_BASE_URL}/accessToken`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ identity: userId || 'mobile_user', platform: Platform.OS }),
+        });
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        const twilioToken = data.token || data.accessToken;
+
+        if (twilioToken) {
+          await voiceRef.current.register(twilioToken);
+          console.log('[VoiceContext] Token refreshed and re-registered');
+        }
+      } catch (err) {
+        console.error('[VoiceContext] Token refresh failed:', err);
+      }
+    }, 10 * 60 * 1000); // 10 minutes
+
+    return () => clearInterval(interval);
+  }, [isRegistered, getToken, userId]);
+
   // Ring sound helpers
   const playIncomingRing = async () => {
     try {
