@@ -24,7 +24,7 @@
       "title": "Reject Call and Send to Voicemail",
       "description": "Implement rejectIncomingCall() and sendToVoicemail(). Reject simply rejects the invite. Voicemail rejects and then POSTs to /api/calls/send-to-voicemail with the parentCallSid.",
       "acceptance": "rejectIncomingCall() stops ring, rejects invite, resets state. sendToVoicemail() stops ring, rejects invite, POSTs parentCallSid to /api/calls/send-to-voicemail with auth header, resets state.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 4,

@@ -29,3 +29,11 @@
 - Files modified: `src/contexts/VoiceContext.tsx`, `prd.json`, `ralph-progress.txt`
 - Notes: Story 3 (Reject/Voicemail) is already scaffolded from iteration 1, just needs verification
 
+## Iteration 3 - Story ID: 3 - "Reject Call and Send to Voicemail"
+- Verified existing rejectIncomingCall() implementation: stops ring, rejects invite, resets state (incomingCallInvite=null, callState='idle')
+- Verified existing sendToVoicemail() implementation: stops ring, rejects invite, POSTs parentCallSid to /api/calls/send-to-voicemail with Bearer auth header, resets state
+- Both functions use try/catch with finally blocks for clean state reset
+- TypeScript compiles cleanly (tsc --noEmit passes)
+- Files modified: `prd.json`, `ralph-progress.txt`
+- Notes: Implementation was already complete from iteration 1 scaffolding. Story 4 (Make Outbound Call) needs startCall() to be enhanced with dialing state, callInfo, and full spec compliance
+
