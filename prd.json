@@ -56,7 +56,7 @@
       "title": "State Sync on Reconnect",
       "description": "When the WebSocket reconnects mid-call, the server sends call.join.ack followed by translation-state-sync. Handle translation-state-sync to update isTranslating, srcLang, and dstLang state so UI renders correctly even if events were missed during disconnect.",
       "acceptance": "On receiving translation-state-sync message, update isTranslating state and store srcLang/dstLang. On receiving call.join.ack, log successful reconnection. These messages ensure the UI is consistent after any reconnection gap.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 9,

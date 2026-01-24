@@ -563,7 +563,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         break;
 
       case 'call.join.ack':
-        console.log('[VoiceContext] WS: Joined call room');
+        console.log('[VoiceContext] WS: Joined call room (reconnection successful)');
         break;
 
       case 'pong':
