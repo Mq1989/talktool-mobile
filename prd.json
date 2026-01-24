@@ -14,7 +14,7 @@
       "title": "Fly.io Instance Affinity - Include in WebSocket URL",
       "description": "When constructing the WebSocket URL in connectWebSocket(), include fly-force-instance-id as a query parameter if wsInstanceRef.current has a value. This forces Fly.io proxy to route the WebSocket upgrade to the correct machine.",
       "acceptance": "connectWebSocket() builds URL as /call/display?callSid={callSid}&fly-force-instance-id={instanceId} when instanceId is available. Without instanceId, connects without the param (first connection). Reconnections always include the stored instanceId.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 3,

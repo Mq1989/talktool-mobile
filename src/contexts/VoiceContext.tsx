@@ -415,7 +415,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     disconnectWebSocket();
     shouldReconnectRef.current = true; // Allow reconnect for this new connection
 
-    const wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
+    let wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
+    if (wsInstanceRef.current) {
+      wsUrl += `&fly-force-instance-id=${encodeURIComponent(wsInstanceRef.current)}`;
+    }
     console.log('[VoiceContext] Connecting WebSocket to URL:', wsUrl);
     console.log('[VoiceContext] WS_BASE_URL:', WS_BASE_URL);
     console.log('[VoiceContext] Current callState at connect time:', callState);
