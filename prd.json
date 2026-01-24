@@ -28,7 +28,7 @@
       "title": "Heartbeat Interval - Standardize to 25 Seconds",
       "description": "Ensure the heartbeat ping interval is 25 seconds in all WebSocket connection code (VoiceContext and useDisplaySocket). The web frontend uses 25s which keeps connections alive through load balancers without being too aggressive.",
       "acceptance": "VoiceContext connectWebSocket() sends { type: 'ping', ts: Date.now() } every 25 seconds via setInterval. useDisplaySocket also uses 25s interval. Heartbeat starts on socket open, clears on socket close/error.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 5,
