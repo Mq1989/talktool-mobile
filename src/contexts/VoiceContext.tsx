@@ -109,6 +109,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callStateRef = useRef<CallState>('idle');
   const wsInstanceRef = useRef<string | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // State
   const [callState, setCallState] = useState<CallState>('idle');
@@ -583,6 +584,26 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     return () => {
       disconnectWebSocket();
     };
+  }, [callSid]);
+
+  // Reconnect WebSocket when app returns to foreground during active call
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      const previousState = appStateRef.current;
+      appStateRef.current = nextAppState;
+
+      if (previousState === 'background' && nextAppState === 'active') {
+        const currentCallState = callStateRef.current;
+        if (callSid && (currentCallState === 'active' || currentCallState === 'call-ringing' || currentCallState === 'dialing')) {
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+            console.log('[VoiceContext] App foregrounded during active call, reconnecting WebSocket');
+            connectWebSocket(callSid);
+          }
+        }
+      }
+    });
+
+    return () => subscription.remove();
   }, [callSid]);
 
   const setupCallEventListeners = (call: any, callParams?: {

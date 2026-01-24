@@ -42,7 +42,7 @@
       "title": "App State Handling - Reconnect on Foreground",
       "description": "When the app returns to foreground from background, check if the WebSocket is still connected. If not (and call is still active), trigger reconnection. This handles iOS/Android suspending background connections.",
       "acceptance": "VoiceContext registers an AppState change listener. When state changes from 'background' to 'active' and callSid exists and callState is 'active'/'call-ringing'/'dialing', check wsRef.current.readyState. If not OPEN, call connectWebSocket(). On unmount, remove AppState listener.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 7,
