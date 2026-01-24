@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import { API_BASE_URL, WS_BASE_URL } from '../utils/constants';
@@ -104,6 +105,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const ringSoundRef = useRef<Audio.Sound | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shouldReconnectRef = useRef(true);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const callStateRef = useRef<CallState>('idle');
+  const wsInstanceRef = useRef<string | null>(null);
 
   // State
   const [callState, setCallState] = useState<CallState>('idle');
@@ -119,6 +124,28 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [transcripts, setTranscripts] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
+
+  // Keep ref in sync for use in closures
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+
+  // Restore instanceId from AsyncStorage on mount
+  useEffect(() => {
+    AsyncStorage.getItem('device-ws-instance').then((storedId) => {
+      if (storedId) {
+        wsInstanceRef.current = storedId;
+      }
+    });
+  }, []);
+
+  // Clear instanceId when call ends
+  useEffect(() => {
+    if (callState === 'ended' || callState === 'idle') {
+      wsInstanceRef.current = null;
+      AsyncStorage.removeItem('device-ws-instance');
+    }
+  }, [callState]);
 
   // Initialize Voice SDK
   useEffect(() => {
@@ -325,12 +352,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setCallState('idle');
   };
 
-  const createCallRecord = async (effectiveCallSid: string) => {
+  const createCallRecord = async (effectiveCallSid: string, overrides?: {
+    from?: string;
+    to?: string;
+    direction?: 'inbound' | 'outbound';
+    repLang?: string;
+    customerLang?: string;
+  }) => {
     try {
       const authToken = await getToken();
       if (!authToken) return;
 
-      await fetch(`${API_BASE_URL}/api/calls/create`, {
+      await fetch(`${API_BASE_URL}/call`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -338,11 +371,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           callSid: effectiveCallSid,
-          from: callInfo?.from || '',
-          to: callInfo?.to || '',
-          direction: callInfo?.direction || 'outbound',
-          repLang: callLanguages?.srcLang || 'en-US',
-          customerLang: callLanguages?.dstLang || 'en-US',
+          from: overrides?.from ?? callInfo?.from ?? '',
+          to: overrides?.to ?? callInfo?.to ?? '',
+          direction: overrides?.direction ?? callInfo?.direction ?? 'outbound',
+          repLang: overrides?.repLang ?? callLanguages?.srcLang ?? 'en-US',
+          customerLang: overrides?.customerLang ?? callLanguages?.dstLang ?? 'en-US',
         }),
       });
       console.log('[VoiceContext] Call record created for:', effectiveCallSid);
@@ -352,31 +385,49 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const disconnectWebSocket = () => {
+    console.log('[VoiceContext] disconnectWebSocket called');
+    // Prevent auto-reconnect
+    shouldReconnectRef.current = false;
+    // Cancel any pending reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
     if (wsRef.current) {
-      wsRef.current.close();
+      console.log('[VoiceContext] Closing WebSocket, readyState:', wsRef.current.readyState);
+      wsRef.current.close(1000, 'intentional-close');
       wsRef.current = null;
     }
   };
 
   const connectWebSocket = (sid: string) => {
-    if (!sid) return;
+    console.log('[VoiceContext] connectWebSocket called with sid:', sid);
+    if (!sid) {
+      console.log('[VoiceContext] connectWebSocket: sid is empty, aborting');
+      return;
+    }
 
     // Clean up existing connection
     disconnectWebSocket();
+    shouldReconnectRef.current = true; // Allow reconnect for this new connection
 
     const wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
-    console.log('[VoiceContext] Connecting WebSocket:', wsUrl);
+    console.log('[VoiceContext] Connecting WebSocket to URL:', wsUrl);
+    console.log('[VoiceContext] WS_BASE_URL:', WS_BASE_URL);
+    console.log('[VoiceContext] Current callState at connect time:', callState);
 
     const socket = new WebSocket(wsUrl);
 
     socket.onopen = () => {
-      console.log('[VoiceContext] WebSocket connected');
+      console.log('[VoiceContext] WebSocket OPEN - readyState:', socket.readyState);
       // Join the call room
-      socket.send(JSON.stringify({ type: 'call.join', callSid: sid }));
+      const joinMsg = { type: 'call.join', callSid: sid };
+      console.log('[VoiceContext] Sending join message:', JSON.stringify(joinMsg));
+      socket.send(JSON.stringify(joinMsg));
 
       // Start heartbeat ping every 25s
       heartbeatIntervalRef.current = setInterval(() => {
@@ -387,35 +438,53 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     };
 
     socket.onmessage = (event) => {
+      console.log('[VoiceContext] WebSocket RAW message received:', event.data);
       try {
         const msg = JSON.parse(event.data);
+        console.log('[VoiceContext] WebSocket parsed message - type:', msg.type, 'full:', JSON.stringify(msg));
+
+        // Store instance ID for reconnection affinity
+        if (msg.instanceId && msg.instanceId !== wsInstanceRef.current) {
+          wsInstanceRef.current = msg.instanceId;
+          AsyncStorage.setItem('device-ws-instance', msg.instanceId);
+        }
+
         handleWsMessage(msg);
       } catch (err) {
-        console.warn('[VoiceContext] Failed to parse WebSocket message:', err);
+        console.warn('[VoiceContext] Failed to parse WebSocket message:', err, 'raw:', event.data);
       }
     };
 
     socket.onclose = (event) => {
-      console.log('[VoiceContext] WebSocket closed:', event.code, event.reason);
+      console.log('[VoiceContext] WebSocket CLOSED - code:', event.code, 'reason:', event.reason);
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
       }
-      // Reconnect if call is still active
-      if (callState === 'active' || callState === 'call-ringing') {
-        console.log('[VoiceContext] Attempting WebSocket reconnection...');
-        setTimeout(() => connectWebSocket(sid), 3000);
+      // Only reconnect if: flag is true AND call is still active (using ref for current value)
+      const currentState = callStateRef.current;
+      if (shouldReconnectRef.current && event.code !== 1000 &&
+          (currentState === 'active' || currentState === 'call-ringing' || currentState === 'dialing')) {
+        console.log('[VoiceContext] WebSocket closed unexpectedly during active call, reconnecting in 3s...');
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          connectWebSocket(sid);
+        }, 3000);
+      } else {
+        console.log('[VoiceContext] WebSocket closed, NOT reconnecting (shouldReconnect:', shouldReconnectRef.current, 'state:', currentState, ')');
       }
     };
 
-    socket.onerror = (err) => {
-      console.error('[VoiceContext] WebSocket error:', err);
+    socket.onerror = (err: any) => {
+      console.error('[VoiceContext] WebSocket ERROR:', JSON.stringify(err));
+      console.error('[VoiceContext] WebSocket error - socket readyState:', socket.readyState);
     };
 
     wsRef.current = socket;
   };
 
   const handleWsMessage = (msg: any) => {
+    console.log('[VoiceContext] handleWsMessage - type:', msg.type, 'current callState:', callState);
     switch (msg.type) {
       case 'transcript': {
         const transcript: TranscriptMessage = {
@@ -459,6 +528,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       case 'end-call':
         console.log('[VoiceContext] WS: end-call', msg.reason);
         setCallState('ended');
+        setCallSid(null);
+        disconnectWebSocket();
         break;
 
       case 'toggle-translation.ack':
@@ -492,7 +563,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
   // Connect WebSocket when callSid is set
   useEffect(() => {
-    if (callSid && (callState === 'active' || callState === 'call-ringing')) {
+    if (callSid) {
+      console.log('[VoiceContext] WS useEffect: callSid set, connecting WebSocket');
       connectWebSocket(callSid);
     }
     return () => {
@@ -500,7 +572,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     };
   }, [callSid]);
 
-  const setupCallEventListeners = (call: any) => {
+  const setupCallEventListeners = (call: any, callParams?: {
+    from: string;
+    to: string;
+    direction?: 'inbound' | 'outbound';
+    repLang?: string;
+    customerLang?: string;
+  }) => {
     if (!Call) {
       console.warn('[VoiceContext] Call class not available, cannot set up event listeners');
       return;
@@ -527,20 +605,32 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       console.log('[VoiceContext] Effective callSid:', effectiveCallSid);
       setCallSid(effectiveCallSid);
       setCallInfo(prev => prev ? { ...prev, callSid: effectiveCallSid } : {
-        direction: 'outbound',
-        from: '',
-        to: '',
+        direction: callParams?.direction || 'outbound',
+        from: callParams?.from || '',
+        to: callParams?.to || '',
         callSid: effectiveCallSid,
       });
 
       // Create call record on backend
-      createCallRecord(effectiveCallSid);
+      createCallRecord(effectiveCallSid, callParams ? {
+        from: callParams.from,
+        to: callParams.to,
+        direction: callParams.direction,
+        repLang: callParams.repLang,
+        customerLang: callParams.customerLang,
+      } : undefined);
     });
 
     // Call ringing (remote party is being called)
     call.on(Call.Event.Ringing, () => {
       console.log('[VoiceContext] Event: Call ringing');
       setCallState('call-ringing');
+      // Try to get SID at ringing time as belt-and-suspenders
+      const sid = call.getSid?.() || (call as any)._sid || null;
+      if (sid && !callSid) {
+        console.log('[VoiceContext] Got callSid at Ringing:', sid);
+        setCallSid(sid);
+      }
     });
 
     call.on(Call.Event.Reconnecting, () => {
@@ -555,9 +645,14 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
     // Call disconnected
     call.on(Call.Event.Disconnected, (err: any) => {
-      console.log('[VoiceContext] Event: Call disconnected', err ? `Error: ${JSON.stringify(err)}` : '');
+      console.log('[VoiceContext] Event: Call disconnected');
+      if (err) {
+        console.log('[VoiceContext] Disconnect error:', err.message);
+      }
+      disconnectWebSocket();
       setActiveCall(null);
       setCallState('ended');
+      setCallSid(null);
       setIsMuted(false);
     });
 
@@ -565,7 +660,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     call.on(Call.Event.ConnectFailure, (err: any) => {
       console.error('[VoiceContext] Event: Call connect failure:', err);
       setError(err?.message || 'Failed to connect call');
+      disconnectWebSocket();
       setCallState('idle');
+      setCallSid(null);
       setActiveCall(null);
     });
 
@@ -637,6 +734,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       console.log('[VoiceContext] Twilio access token obtained, length:', twilioToken.length);
 
+      console.log('[VoiceContext] makeCall: Setting callState to dialing');
       setCallState('dialing');
 
       // Convert language codes to locale codes for STT
@@ -675,12 +773,36 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         direction: 'outbound',
         from: params.fromNumber,
         to: params.toNumber,
-        callSid: call.getSid?.() || null,
+        callSid: null,
       });
 
       // Set up call event listeners
-      setupCallEventListeners(call);
-      console.log('[VoiceContext] Outbound call initiated, waiting for events');
+      setupCallEventListeners(call, {
+        from: params.fromNumber,
+        to: params.toNumber,
+        direction: 'outbound',
+        repLang,
+        customerLang,
+      });
+
+      // Poll for callSid since getSid() returns null immediately after connect()
+      const sidPollInterval = setInterval(() => {
+        const sid = call.getSid?.() || (call as any)._sid || null;
+        console.log('[VoiceContext] Polling for callSid:', sid);
+        if (sid) {
+          console.log('[VoiceContext] Got callSid from polling:', sid);
+          setCallSid(sid);
+          setCallInfo(prev => prev ? { ...prev, callSid: sid } : prev);
+          clearInterval(sidPollInterval);
+        }
+      }, 300);
+
+      // Stop polling after 15s or when call ends
+      setTimeout(() => clearInterval(sidPollInterval), 15000);
+      call.on(Call.Event.Disconnected, () => clearInterval(sidPollInterval));
+      call.on(Call.Event.ConnectFailure, () => clearInterval(sidPollInterval));
+
+      console.log('[VoiceContext] Outbound call initiated, polling for SID');
     } catch (err) {
       console.error('[VoiceContext] Failed to make call:', err);
       setError(err instanceof Error ? err.message : 'Failed to make call');
@@ -724,7 +846,17 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setCallSid(effectiveCallSid);
 
       // Set up call event listeners
-      setupCallEventListeners(call);
+      const inboundCallParams = {
+        from: customParams.incomingNumber || 'Unknown',
+        to: '',
+        direction: 'inbound' as const,
+        repLang: callLanguages?.srcLang || 'en-US',
+        customerLang: callLanguages?.dstLang || 'en-US',
+      };
+      setupCallEventListeners(call, inboundCallParams);
+
+      // Create call record on backend
+      createCallRecord(effectiveCallSid, inboundCallParams);
 
       setIncomingCallInvite(null);
     } catch (err) {
@@ -784,8 +916,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('[VoiceContext] Failed to disconnect call:', err);
     }
+    disconnectWebSocket();
     setActiveCall(null);
     setCallState('ended');
+    setCallSid(null);
     setIsMuted(false);
   }, [activeCall]);
 

@@ -1,102 +1,90 @@
 {
-  "project": "TalkTool Mobile - Twilio Voice Integration",
-  "description": "Implement full Twilio Voice SDK integration for iOS, covering incoming/outbound calls, WebSocket transcription, availability management, and supporting features.",
+  "project": "TalkTool Mobile - WebSocket Connection Management",
+  "description": "Ensure WebSocket connections stay connected and handle reconnection reliably during calls, matching the proven patterns from the web frontend (DeviceContext.jsx).",
   "stories": [
     {
       "id": 1,
-      "step": "Step 4",
-      "title": "Incoming Call Event Listeners",
-      "description": "Register Voice.Event.CallInvite and Voice.Event.CancelledCallInvite listeners on the Voice SDK instance. Extract custom parameters (parentCallSid, srcLang, dstLang, incomingNumber, isTranslating) from the call invite and update VoiceContext state (callState, callLanguages, incomingCallInvite). Play incoming ring sound on invite, stop ring on cancel.",
-      "acceptance": "VoiceContext registers both event listeners in setupEventListeners(). CallInvite handler extracts all custom params, sets callState to 'incoming', stores parentCallSid in ref. CancelledCallInvite handler resets state to idle and stops ring.",
+      "title": "Fly.io Instance Affinity - Store Instance ID",
+      "description": "When the server sends a call.join.ack or any message containing instanceId, store it in a ref (wsInstanceRef) and persist it to AsyncStorage with key 'device-ws-instance'. This ensures reconnections route to the same Fly.io machine that owns the call session.",
+      "acceptance": "On receiving any WebSocket message with an instanceId field, update wsInstanceRef.current and write to AsyncStorage. On VoiceContext mount, restore instanceId from AsyncStorage into wsInstanceRef. Clear stored instanceId when call ends (callState becomes 'ended' or 'idle').",
       "passes": true
     },
     {
       "id": 2,
-      "step": "Step 5a",
-      "title": "Accept Incoming Call",
-      "description": "Implement acceptIncomingCall() that accepts the call invite, sets up active call state, extracts parentCallSid, sets translation state from custom params, populates callInfo with direction/from/to/callSid, and calls setupCallEventListeners().",
-      "acceptance": "acceptIncomingCall() stops ring, resets transcript, records start time, accepts invite via .accept(), sets callState to 'active', extracts effective callSid (parentCallSid or call.getSid()), sets callInfo and callSid state, attaches call event listeners.",
-      "passes": true
+      "title": "Fly.io Instance Affinity - Include in WebSocket URL",
+      "description": "When constructing the WebSocket URL in connectWebSocket(), include fly-force-instance-id as a query parameter if wsInstanceRef.current has a value. This forces Fly.io proxy to route the WebSocket upgrade to the correct machine.",
+      "acceptance": "connectWebSocket() builds URL as /call/display?callSid={callSid}&fly-force-instance-id={instanceId} when instanceId is available. Without instanceId, connects without the param (first connection). Reconnections always include the stored instanceId.",
+      "passes": false
     },
     {
       "id": 3,
-      "step": "Step 5b",
-      "title": "Reject Call and Send to Voicemail",
-      "description": "Implement rejectIncomingCall() and sendToVoicemail(). Reject simply rejects the invite. Voicemail rejects and then POSTs to /api/calls/send-to-voicemail with the parentCallSid.",
-      "acceptance": "rejectIncomingCall() stops ring, rejects invite, resets state. sendToVoicemail() stops ring, rejects invite, POSTs parentCallSid to /api/calls/send-to-voicemail with auth header, resets state.",
-      "passes": true
+      "title": "Reconnection Interval - Match Web Frontend",
+      "description": "Change the reconnection delay from 3000ms to 1500ms to match the web frontend. Call sessions are short-lived and latency matters, so a fixed 1.5s delay is appropriate (not exponential backoff).",
+      "acceptance": "On unexpected WebSocket close (code !== 1000 and !== 1001), setTimeout calls connectWebSocket() after 1500ms (not 3000ms). The shouldReconnectRef flag still prevents reconnection on intentional close.",
+      "passes": false
     },
     {
       "id": 4,
-      "step": "Step 6",
-      "title": "Make Outbound Call",
-      "description": "Implement startCall() that fetches a fresh access token, connects via voice.connect() with all parameters (To, repLang, customerLang, callerId, clerkUserId, orgId, translateInitially, initialMessage, initialMessageOriginal), sets up callInfo and call event listeners.",
-      "acceptance": "startCall() resets transcript, sets callState to 'dialing', fetches token, calls voice.connect() with full params object, stores activeCall, sets callInfo with direction 'outbound', attaches call event listeners. Errors are caught and state reset to idle.",
-      "passes": true
+      "title": "Heartbeat Interval - Standardize to 25 Seconds",
+      "description": "Ensure the heartbeat ping interval is 25 seconds in all WebSocket connection code (VoiceContext and useDisplaySocket). The web frontend uses 25s which keeps connections alive through load balancers without being too aggressive.",
+      "acceptance": "VoiceContext connectWebSocket() sends { type: 'ping', ts: Date.now() } every 25 seconds via setInterval. useDisplaySocket also uses 25s interval. Heartbeat starts on socket open, clears on socket close/error.",
+      "passes": false
     },
     {
       "id": 5,
-      "step": "Step 7",
-      "title": "Active Call Event Listeners",
-      "description": "Implement setupCallEventListeners(call) that registers handlers for Call.Event.Connected (set active, extract parentCallSid, create call record), Call.Event.Ringing (set call-ringing), Call.Event.Disconnected (cleanup, set ended), and Call.Event.ConnectFailure (error log, reset to idle).",
-      "acceptance": "setupCallEventListeners registers all four event handlers. Connected handler sets callState 'active', extracts parentCallSid from getCustomParameters(), updates callSid and callInfo, calls createCallRecord(). Ringing sets 'call-ringing'. Disconnected nulls activeCall, sets 'ended', resets mute. ConnectFailure logs error, sets idle, nulls activeCall.",
-      "passes": true
+      "title": "Duplicate Connection Prevention",
+      "description": "Before creating a new WebSocket, check if an existing connection is already open or connecting to the same URL. This prevents duplicate connections from React re-renders or rapid state changes.",
+      "acceptance": "connectWebSocket() checks: (1) wsRef.current exists, (2) readyState is OPEN or CONNECTING, (3) the target URL matches what we would connect to. If all three are true, return without creating a new connection. Store target URL on the socket object for comparison.",
+      "passes": false
     },
     {
       "id": 6,
-      "step": "Step 8",
-      "title": "Mute Toggle, DTMF, and End Call",
-      "description": "Implement toggleMute() using activeCall.mute(), sendDigits() using activeCall.sendDigits(), and endCall() using activeCall.disconnect(). All check for activeCall existence first.",
-      "acceptance": "toggleMute() calls activeCall.mute(!isMuted) and updates isMuted state. sendDigits(digits) calls activeCall.sendDigits(). endCall() calls activeCall.disconnect(), nulls activeCall, sets callState 'ended', resets isMuted. All guard against null activeCall.",
-      "passes": true
+      "title": "App State Handling - Reconnect on Foreground",
+      "description": "When the app returns to foreground from background, check if the WebSocket is still connected. If not (and call is still active), trigger reconnection. This handles iOS/Android suspending background connections.",
+      "acceptance": "VoiceContext registers an AppState change listener. When state changes from 'background' to 'active' and callSid exists and callState is 'active'/'call-ringing'/'dialing', check wsRef.current.readyState. If not OPEN, call connectWebSocket(). On unmount, remove AppState listener.",
+      "passes": false
     },
     {
       "id": 7,
-      "step": "Step 9a",
-      "title": "WebSocket Display Connection",
-      "description": "Implement connectWebSocket() that connects to wss://BACKEND_URL/call/display?callSid={parentCallSid}. On open, send call.join message and start 25s heartbeat ping interval. Handle reconnection on close. Store socket in wsRef.",
-      "acceptance": "connectWebSocket() creates WebSocket with correct URL, sends {type:'call.join', callSid} on open, starts setInterval for ping every 25s, stores ref. Cleanup clears interval and closes socket. Connection initiated when callSid is set.",
-      "passes": true
+      "title": "Connection Lifecycle - Tie to Call State",
+      "description": "WebSocket should only be connected when callSid exists AND callState is not 'idle' or 'ended'. On state transition to idle/ended, set shouldReconnectRef to false and close with code 1000. This matches the web frontend's useEffect pattern.",
+      "acceptance": "useEffect watches callSid and callState. If callSid && callState !== 'idle' && callState !== 'ended': set shouldReconnectRef = true, call connectWebSocket(). Else: call closeWebSocket() which sets shouldReconnectRef = false, clears heartbeat, closes socket with code 1000.",
+      "passes": false
     },
     {
       "id": 8,
-      "step": "Step 9b",
-      "title": "WebSocket Message Handling",
-      "description": "Handle all incoming WebSocket message types: transcript (append to array), call-initiated/call-ringing/call-answered (update callState, store languages, set isTranslating), end-call (set ended), toggle-translation.ack (update isTranslating), translation-state-sync (sync state on connect).",
-      "acceptance": "onmessage handler parses JSON and dispatches by type. transcript messages append to transcript state array. call-answered sets 'active' and stores language info. end-call sets 'ended'. toggle-translation.ack toggles isTranslating. translation-state-sync sets initial translation state.",
-      "passes": true
+      "title": "State Sync on Reconnect",
+      "description": "When the WebSocket reconnects mid-call, the server sends call.join.ack followed by translation-state-sync. Handle translation-state-sync to update isTranslating, srcLang, and dstLang state so UI renders correctly even if events were missed during disconnect.",
+      "acceptance": "On receiving translation-state-sync message, update isTranslating state and store srcLang/dstLang. On receiving call.join.ack, log successful reconnection. These messages ensure the UI is consistent after any reconnection gap.",
+      "passes": false
     },
     {
       "id": 9,
-      "step": "Step 10a",
-      "title": "Availability Toggle and Heartbeat",
-      "description": "Implement goAvailable() that POSTs to /api/availability/set-available-multi with selected phone numbers, goUnavailable() that POSTs to /api/availability/set-unavailable-all, and a 30s heartbeat interval that POSTs to /api/availability/heartbeat-multi while available.",
-      "acceptance": "goAvailable() POSTs selected numbers, sets isAvailable true, starts heartbeat interval. goUnavailable() POSTs to set-unavailable-all, sets isAvailable false, clears heartbeat. Heartbeat sends POST every 30s with selected numbers. All include Bearer auth header.",
-      "passes": true
+      "title": "Reconnection Guard - Only During Active Call States",
+      "description": "The shouldReconnectRef flag must be checked before any reconnection attempt. Reconnection should only happen when callState is 'active', 'call-ringing', or 'dialing'. If call has ended while socket was disconnected, do not attempt reconnection.",
+      "acceptance": "In the socket close handler, before scheduling reconnection: verify shouldReconnectRef.current is true AND callState is in ['active', 'call-ringing', 'dialing']. If either check fails, do not reconnect. On end-call message, set shouldReconnectRef = false before closing.",
+      "passes": false
     },
     {
       "id": 10,
-      "step": "Step 10b",
-      "title": "Availability Status Updates",
-      "description": "Implement setBusy() (POST /api/availability/set-busy when on call), setRinging() (POST /api/availability/set-ringing on incoming call), restoreAvailability() (POST /api/availability/restore on app launch), and savePreferences() (PUT /api/availability/preferences when changing numbers).",
-      "acceptance": "setBusy() called when call becomes active. setRinging() called on incoming invite. restoreAvailability() called on VoiceContext mount. savePreferences() called when user updates selected numbers. All include proper auth headers and handle errors.",
-      "passes": true
+      "title": "Clean Disconnect on Call End",
+      "description": "When receiving end-call WebSocket message or when user ends call locally, perform a clean disconnect: set shouldReconnectRef to false, clear heartbeat interval, close WebSocket with code 1000, clear instanceId from AsyncStorage, and null out wsRef.",
+      "acceptance": "handleEndCall() or end-call message handler: sets shouldReconnectRef = false, clearInterval(heartbeatRef), closes ws with code 1000 if readyState is OPEN/CONNECTING, removes 'device-ws-instance' from AsyncStorage, sets wsRef.current = null. No reconnection attempts fire after this.",
+      "passes": false
     },
     {
       "id": 11,
-      "step": "Step 11",
-      "title": "Token Refresh",
-      "description": "Implement periodic token refresh that fetches a new access token and re-registers with the Voice SDK every 10 minutes while status is 'registered'.",
-      "acceptance": "useEffect with status dependency sets up 10-minute setInterval that calls fetchAccessToken() then voice.register(newToken). Interval cleared on cleanup or when status changes from 'registered'. Errors are caught and logged.",
-      "passes": true
+      "title": "WebSocket Message Protocol - Full Message Support",
+      "description": "Handle all message types from the server: call.join.ack, translation-state-sync, call-initiated, call-ringing, call-answered, call-connecting-customer, transcript, toggle-translation.ack, control.applied, answering-machine, end-call, pong. Send: call.join, ping, translation-on, translation-off.",
+      "acceptance": "Message handler switch/if-chain covers all listed types. call-initiated sets callState 'dialing'. call-ringing sets 'call-ringing'. call-answered sets 'active' and updates language state. transcript appends to transcript array. end-call triggers clean disconnect. toggle-translation.ack updates isTranslating. pong is logged/ignored.",
+      "passes": false
     },
     {
       "id": 12,
-      "step": "Step 12",
-      "title": "Introduction Message Pre-call Translation",
-      "description": "Implement configureIntroduction() that POSTs to /api/introduction with message, lang (customerLang), sourceLang (repLang), and save:true. Returns the translated text and introductionId for use in startCall().",
-      "acceptance": "configureIntroduction(message, customerLang, repLang) POSTs to /api/introduction with proper body and auth header, returns {translatedMessage, introductionId}. The translated message is passed as initialMessage param to startCall().",
-      "passes": true
+      "title": "Consolidate WebSocket to Single Implementation",
+      "description": "Remove websocket.service.ts and useWebSocket.ts (legacy generic implementations). Use VoiceContext's connectWebSocket as the single WebSocket connection manager for calls. useDisplaySocket.ts can remain for display-only monitoring but should align intervals (25s heartbeat, 1.5s reconnect).",
+      "acceptance": "VoiceContext owns all call WebSocket logic. websocket.service.ts and useWebSocket.ts are removed or deprecated. useDisplaySocket.ts updated to use 25s heartbeat and 1.5s reconnect. No duplicate WebSocket connections during a call.",
+      "passes": false
     }
   ]
 }
