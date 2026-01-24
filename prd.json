@@ -21,7 +21,7 @@
       "title": "Reconnection Interval - Match Web Frontend",
       "description": "Change the reconnection delay from 3000ms to 1500ms to match the web frontend. Call sessions are short-lived and latency matters, so a fixed 1.5s delay is appropriate (not exponential backoff).",
       "acceptance": "On unexpected WebSocket close (code !== 1000 and !== 1001), setTimeout calls connectWebSocket() after 1500ms (not 3000ms). The shouldReconnectRef flag still prevents reconnection on intentional close.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 4,

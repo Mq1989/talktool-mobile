@@ -466,13 +466,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       // Only reconnect if: flag is true AND call is still active (using ref for current value)
       const currentState = callStateRef.current;
-      if (shouldReconnectRef.current && event.code !== 1000 &&
+      if (shouldReconnectRef.current && event.code !== 1000 && event.code !== 1001 &&
           (currentState === 'active' || currentState === 'call-ringing' || currentState === 'dialing')) {
-        console.log('[VoiceContext] WebSocket closed unexpectedly during active call, reconnecting in 3s...');
+        console.log('[VoiceContext] WebSocket closed unexpectedly during active call, reconnecting in 1.5s...');
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
           connectWebSocket(sid);
-        }, 3000);
+        }, 1500);
       } else {
         console.log('[VoiceContext] WebSocket closed, NOT reconnecting (shouldReconnect:', shouldReconnectRef.current, 'state:', currentState, ')');
       }
