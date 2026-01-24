@@ -84,7 +84,7 @@
       "title": "Consolidate WebSocket to Single Implementation",
       "description": "Remove websocket.service.ts and useWebSocket.ts (legacy generic implementations). Use VoiceContext's connectWebSocket as the single WebSocket connection manager for calls. useDisplaySocket.ts can remain for display-only monitoring but should align intervals (25s heartbeat, 1.5s reconnect).",
       "acceptance": "VoiceContext owns all call WebSocket logic. websocket.service.ts and useWebSocket.ts are removed or deprecated. useDisplaySocket.ts updated to use 25s heartbeat and 1.5s reconnect. No duplicate WebSocket connections during a call.",
-      "passes": false
+      "passes": true
     }
   ]
 }
