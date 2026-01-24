@@ -86,6 +86,7 @@ interface VoiceContextType {
   addTranscript: (transcript: TranscriptMessage) => void;
   clearTranscripts: () => void;
   clearError: () => void;
+  toggleTranslation: (turnOn: boolean) => void;
   configureIntroduction: (message: string, customerLang: string, repLang: string) => Promise<{ translatedMessage: string; introductionId: string } | null>;
   testVoiceSetup: () => Promise<{ success: boolean; message: string }>;
 }
@@ -569,6 +570,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         console.log('[VoiceContext] WS: Joined call room (reconnection successful)');
         break;
 
+      case 'call-connecting-customer':
+        console.log('[VoiceContext] WS: call-connecting-customer');
+        break;
+
+      case 'control.applied':
+        console.log('[VoiceContext] WS: control.applied', msg);
+        break;
+
+      case 'answering-machine':
+        console.log('[VoiceContext] WS: answering-machine detected');
+        break;
+
       case 'pong':
         // Heartbeat response, no action needed
         break;
@@ -982,6 +995,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setIsSpeakerOn(!isSpeakerOn);
   }, [isSpeakerOn]);
 
+  const toggleTranslation = useCallback((turnOn: boolean) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn('[VoiceContext] WebSocket not connected, cannot toggle translation');
+      return;
+    }
+    const messageType = turnOn ? 'translation-on' : 'translation-off';
+    wsRef.current.send(JSON.stringify({ type: messageType, callSid }));
+  }, [callSid]);
+
   const addTranscript = useCallback((transcript: TranscriptMessage) => {
     setTranscripts(prev => [...prev, transcript]);
   }, []);
@@ -1153,6 +1175,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     addTranscript,
     clearTranscripts,
     clearError,
+    toggleTranslation,
     configureIntroduction,
     testVoiceSetup,
   };

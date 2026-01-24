@@ -77,7 +77,7 @@
       "title": "WebSocket Message Protocol - Full Message Support",
       "description": "Handle all message types from the server: call.join.ack, translation-state-sync, call-initiated, call-ringing, call-answered, call-connecting-customer, transcript, toggle-translation.ack, control.applied, answering-machine, end-call, pong. Send: call.join, ping, translation-on, translation-off.",
       "acceptance": "Message handler switch/if-chain covers all listed types. call-initiated sets callState 'dialing'. call-ringing sets 'call-ringing'. call-answered sets 'active' and updates language state. transcript appends to transcript array. end-call triggers clean disconnect. toggle-translation.ack updates isTranslating. pong is logged/ignored.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 12,
