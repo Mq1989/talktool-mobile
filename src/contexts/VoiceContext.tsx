@@ -89,6 +89,7 @@ interface VoiceContextType {
   toggleTranslation: (turnOn: boolean) => void;
   configureIntroduction: (message: string, customerLang: string, repLang: string) => Promise<{ translatedMessage: string; introductionId: string } | null>;
   testVoiceSetup: () => Promise<{ success: boolean; message: string }>;
+  endCallFromServer: () => void;
 }
 
 const VoiceContext = createContext<VoiceContextType | undefined>(undefined);
@@ -591,35 +592,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Connect WebSocket when callSid exists and call is active; disconnect when idle/ended
-  useEffect(() => {
-    if (callSid && callState !== 'idle' && callState !== 'ended') {
-      shouldReconnectRef.current = true;
-      connectWebSocket(callSid);
-    } else {
-      disconnectWebSocket();
-    }
-  }, [callSid, callState]);
+  // NOTE: VoiceContext WebSocket is disabled. The useDisplaySocket hook on the
+  // active call screen is the single display WebSocket connection. Having two
+  // display connections causes the server to close them with code 1012 in a loop.
 
-  // Reconnect WebSocket when app returns to foreground during active call
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      const previousState = appStateRef.current;
-      appStateRef.current = nextAppState;
-
-      if (previousState === 'background' && nextAppState === 'active') {
-        const currentCallState = callStateRef.current;
-        if (callSid && (currentCallState === 'active' || currentCallState === 'call-ringing' || currentCallState === 'dialing')) {
-          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-            console.log('[VoiceContext] App foregrounded during active call, reconnecting WebSocket');
-            connectWebSocket(callSid);
-          }
-        }
-      }
-    });
-
-    return () => subscription.remove();
-  }, [callSid]);
+  // NOTE: Foreground reconnect also disabled - DisplaySocket handles reconnection.
 
   const setupCallEventListeners = (call: any, callParams?: {
     from: string;
@@ -694,10 +671,31 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
     // Call disconnected
     call.on(Call.Event.Disconnected, (err: any) => {
+      const sid = call.getSid?.();
       console.log('[VoiceContext] Event: Call disconnected');
+      console.log('[VoiceContext] Disconnect - call getSid():', sid);
+      console.log('[VoiceContext] Disconnect - call getState():', call.getState?.());
+      console.log('[VoiceContext] Disconnect - current callState:', callStateRef.current);
       if (err) {
-        console.log('[VoiceContext] Disconnect error:', err.message);
+        console.log('[VoiceContext] Disconnect error:', JSON.stringify(err, null, 2));
+        console.log('[VoiceContext] Disconnect error code:', err.code);
+        console.log('[VoiceContext] Disconnect error message:', err.message);
+      } else {
+        console.log('[VoiceContext] Disconnect: No error object provided');
       }
+
+      // If the SDK leg disconnected before Connected ever fired but the call
+      // has a SID, the call is still active server-side. Set callSid and
+      // transition to 'active' so the UI navigates and the display WebSocket
+      // can drive the call state from here.
+      if (!err && sid && callStateRef.current === 'dialing') {
+        console.log('[VoiceContext] SDK leg dropped during dialing but call has SID - treating as server-side active call');
+        setCallSid(sid);
+        setCallState('active');
+        setActiveCall(null);
+        return;
+      }
+
       disconnectWebSocket();
       setActiveCall(null);
       setCallState('ended');
@@ -783,6 +781,20 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       console.log('[VoiceContext] Twilio access token obtained, length:', twilioToken.length);
 
+      // Decode JWT payload to inspect grants (for debugging)
+      try {
+        const parts = twilioToken.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]));
+          console.log('[VoiceContext] Token payload - sub:', payload.sub);
+          console.log('[VoiceContext] Token payload - grants:', JSON.stringify(payload.grants));
+          console.log('[VoiceContext] Token payload - iss:', payload.iss);
+          console.log('[VoiceContext] Token payload - exp:', new Date(payload.exp * 1000).toISOString());
+        }
+      } catch (decodeErr) {
+        console.log('[VoiceContext] Could not decode token payload');
+      }
+
       console.log('[VoiceContext] makeCall: Setting callState to dialing');
       setCallState('dialing');
 
@@ -814,6 +826,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       });
 
       console.log('[VoiceContext] voiceRef.current.connect() returned, call:', call ? 'exists' : 'null');
+      if (call) {
+        console.log('[VoiceContext] Call object keys:', Object.keys(call));
+        console.log('[VoiceContext] Call getSid():', call.getSid?.());
+        console.log('[VoiceContext] Call getState():', call.getState?.());
+        console.log('[VoiceContext] Call getFrom():', call.getFrom?.());
+        console.log('[VoiceContext] Call getTo():', call.getTo?.());
+      }
 
       setActiveCall(call);
 
@@ -1055,6 +1074,14 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [getToken]);
 
+  const endCallFromServer = useCallback(() => {
+    console.log('[VoiceContext] endCallFromServer called - resetting call state');
+    setCallState('ended');
+    setCallSid(null);
+    setActiveCall(null);
+    setIsMuted(false);
+  }, []);
+
   const testVoiceSetup = useCallback(async (): Promise<{ success: boolean; message: string }> => {
     console.log('[VoiceContext] === RUNNING TEST ===');
 
@@ -1178,6 +1205,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     toggleTranslation,
     configureIntroduction,
     testVoiceSetup,
+    endCallFromServer,
   };
 
   return (

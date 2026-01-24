@@ -12,8 +12,11 @@ export const TWILIO_SERVER_URL = process.env.EXPO_PUBLIC_TWILIO_SERVER_URL
   ?? (__DEV__ ? 'http://localhost:3001' : 'https://usetalktoolserver.ngrok.app');
 
 // WebSocket URL - for real-time transcripts during calls
-export const WS_BASE_URL = process.env.EXPO_PUBLIC_WEBSOCKET_URL
-  ?? (__DEV__ ? 'ws://localhost:3001' : 'wss://usetalktoolserver.ngrok.app');
+export const WS_BASE_URL =
+  process.env.EXPO_PUBLIC_WEBSOCKET_URL ??
+  (__DEV__
+    ? "ws://usetalktoolserver.ngrok.app"
+    : "wss://usetalktoolserver.ngrok.app");
 
 // Live Translation WebSocket URL - for live translate feature
 export const LIVE_TRANS_WS_URL = process.env.EXPO_PUBLIC_LIVE_TRANS_URL
@@ -38,6 +41,11 @@ export const QUERY_KEYS = {
 export const CALL_TIMEOUT_MS = 60000; // 1 minute
 export const WS_RECONNECT_INTERVAL_MS = 1500;
 export const MAX_WS_RECONNECT_ATTEMPTS = 5;
+
+// Display WebSocket reconnection (more aggressive for call reliability)
+export const DISPLAY_WS_MAX_RECONNECT_ATTEMPTS = 15;
+export const DISPLAY_WS_RECONNECT_BASE_MS = 1000;
+export const DISPLAY_WS_RECONNECT_MAX_MS = 30000;
 
 export const PLAN_LIMITS = {
   starter: {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import { WS_BASE_URL, WS_RECONNECT_INTERVAL_MS, MAX_WS_RECONNECT_ATTEMPTS } from '../utils/constants';
+import { WS_BASE_URL, DISPLAY_WS_MAX_RECONNECT_ATTEMPTS, DISPLAY_WS_RECONNECT_BASE_MS, DISPLAY_WS_RECONNECT_MAX_MS } from '../utils/constants';
 
 /**
  * Transcript message from the display WebSocket
@@ -48,6 +48,8 @@ interface UseDisplaySocketOptions {
   callSid: string | null;
   onTranscript?: (transcript: DisplayTranscript) => void;
   onCallEnd?: (event: CallEndEvent) => void;
+  onCallAnswered?: () => void;
+  onCallRinging?: () => void;
   onTranslationStateChange?: (state: TranslationState) => void;
   onConnected?: () => void;
   onError?: (error: string) => void;
@@ -66,6 +68,8 @@ export function useDisplaySocket({
   callSid,
   onTranscript,
   onCallEnd,
+  onCallAnswered,
+  onCallRinging,
   onTranslationStateChange,
   onConnected,
   onError,
@@ -74,6 +78,7 @@ export function useDisplaySocket({
   const reconnectAttempts = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastMessageTimeRef = useRef<number>(0);
 
   const [isConnected, setIsConnected] = useState(false);
   const [isJoined, setIsJoined] = useState(false);
@@ -83,6 +88,8 @@ export function useDisplaySocket({
   // Callback refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
   const onCallEndRef = useRef(onCallEnd);
+  const onCallAnsweredRef = useRef(onCallAnswered);
+  const onCallRingingRef = useRef(onCallRinging);
   const onTranslationStateChangeRef = useRef(onTranslationStateChange);
   const onConnectedRef = useRef(onConnected);
   const onErrorRef = useRef(onError);
@@ -90,6 +97,8 @@ export function useDisplaySocket({
 
   useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
   useEffect(() => { onCallEndRef.current = onCallEnd; }, [onCallEnd]);
+  useEffect(() => { onCallAnsweredRef.current = onCallAnswered; }, [onCallAnswered]);
+  useEffect(() => { onCallRingingRef.current = onCallRinging; }, [onCallRinging]);
   useEffect(() => { onTranslationStateChangeRef.current = onTranslationStateChange; }, [onTranslationStateChange]);
   useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
@@ -154,8 +163,12 @@ export function useDisplaySocket({
         // Send call.join to ensure server attaches display to correct session
         // (matches web app behavior - critical for reliable attachment)
         try {
-          ws.send(JSON.stringify({ type: 'call.join', callSid }));
-          console.log('[DisplaySocket] 📤 Sent call.join for callSid:', callSid);
+          ws.send(JSON.stringify({
+            type: 'call.join',
+            callSid,
+            lastMessageTime: lastMessageTimeRef.current || undefined,
+          }));
+          console.log('[DisplaySocket] Sent call.join for callSid:', callSid);
         } catch (e) {
           console.error('[DisplaySocket] Failed to send call.join:', e);
         }
@@ -196,7 +209,8 @@ export function useDisplaySocket({
 
             // 3. Real-time transcript with translation
             case 'transcript':
-              console.log('[DisplaySocket] 📝 Transcript received:', {
+              lastMessageTimeRef.current = Math.max(lastMessageTimeRef.current, data.time || Date.now());
+              console.log('[DisplaySocket] Transcript received:', {
                 from: data.from,
                 original: data.original?.substring(0, 50),
                 translation: data.translation?.substring(0, 50),
@@ -245,6 +259,18 @@ export function useDisplaySocket({
               // Connection is alive, no action needed
               break;
 
+            // 7. Call answered by remote party
+            case 'call-answered':
+              console.log('[DisplaySocket] Call answered:', data.callSid);
+              onCallAnsweredRef.current?.();
+              break;
+
+            // 8. Call ringing at remote party
+            case 'call-ringing':
+              console.log('[DisplaySocket] Call ringing:', data.callSid);
+              onCallRingingRef.current?.();
+              break;
+
             case 'error':
               console.error('[DisplaySocket] Server error:', data.message);
               setError(data.message);
@@ -271,14 +297,19 @@ export function useDisplaySocket({
         setIsJoined(false);
         clearTimers();
 
-        // Attempt reconnection if not intentional close (code 1000)
-        if (event.code !== 1000 && callSid && reconnectAttempts.current < MAX_WS_RECONNECT_ATTEMPTS) {
-          reconnectAttempts.current++;
-          console.log(`[DisplaySocket] Reconnect attempt ${reconnectAttempts.current}/${MAX_WS_RECONNECT_ATTEMPTS}`);
+        const shouldReconnect =
+          event.code !== 1000 &&
+          callSid &&
+          reconnectAttempts.current < DISPLAY_WS_MAX_RECONNECT_ATTEMPTS;
 
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, WS_RECONNECT_INTERVAL_MS);
+        if (shouldReconnect) {
+          reconnectAttempts.current++;
+          const delay = Math.min(
+            DISPLAY_WS_RECONNECT_BASE_MS * Math.pow(2, reconnectAttempts.current - 1),
+            DISPLAY_WS_RECONNECT_MAX_MS
+          );
+          console.log(`[DisplaySocket] Reconnect ${reconnectAttempts.current}/${DISPLAY_WS_MAX_RECONNECT_ATTEMPTS} in ${delay}ms (code: ${event.code})`);
+          reconnectTimeoutRef.current = setTimeout(() => connect(), delay);
         }
       };
     } catch (err) {
@@ -291,15 +322,17 @@ export function useDisplaySocket({
   // Handle app state changes (foreground/background)
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active' && callSid && !isConnected) {
-        // Reconnect when app comes back to foreground
-        connect();
+      if (nextAppState === 'active' && callSid) {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          reconnectAttempts.current = 0; // Fresh start on foreground
+          connect();
+        }
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [callSid, isConnected, connect]);
+  }, [callSid, connect]);
 
   // Connect when callSid changes
   useEffect(() => {
