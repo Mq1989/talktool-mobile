@@ -63,7 +63,7 @@
       "title": "Reconnection Guard - Only During Active Call States",
       "description": "The shouldReconnectRef flag must be checked before any reconnection attempt. Reconnection should only happen when callState is 'active', 'call-ringing', or 'dialing'. If call has ended while socket was disconnected, do not attempt reconnection.",
       "acceptance": "In the socket close handler, before scheduling reconnection: verify shouldReconnectRef.current is true AND callState is in ['active', 'call-ringing', 'dialing']. If either check fails, do not reconnect. On end-call message, set shouldReconnectRef = false before closing.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 10,

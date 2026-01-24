@@ -541,6 +541,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
       case 'end-call':
         console.log('[VoiceContext] WS: end-call', msg.reason);
+        shouldReconnectRef.current = false;
         setCallState('ended');
         setCallSid(null);
         disconnectWebSocket();
