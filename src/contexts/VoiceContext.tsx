@@ -411,19 +411,29 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Clean up existing connection
-    disconnectWebSocket();
-    shouldReconnectRef.current = true; // Allow reconnect for this new connection
-
     let wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
     if (wsInstanceRef.current) {
       wsUrl += `&fly-force-instance-id=${encodeURIComponent(wsInstanceRef.current)}`;
     }
+
+    // Duplicate connection prevention: if already connected/connecting to same URL, skip
+    if (wsRef.current &&
+        (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) &&
+        (wsRef.current as any).__targetUrl === wsUrl) {
+      console.log('[VoiceContext] WebSocket already connected to target URL, skipping');
+      return;
+    }
+
+    // Clean up existing connection
+    disconnectWebSocket();
+    shouldReconnectRef.current = true; // Allow reconnect for this new connection
+
     console.log('[VoiceContext] Connecting WebSocket to URL:', wsUrl);
     console.log('[VoiceContext] WS_BASE_URL:', WS_BASE_URL);
     console.log('[VoiceContext] Current callState at connect time:', callState);
 
     const socket = new WebSocket(wsUrl);
+    (socket as any).__targetUrl = wsUrl;
 
     socket.onopen = () => {
       console.log('[VoiceContext] WebSocket OPEN - readyState:', socket.readyState);

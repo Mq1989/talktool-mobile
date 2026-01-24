@@ -35,7 +35,7 @@
       "title": "Duplicate Connection Prevention",
       "description": "Before creating a new WebSocket, check if an existing connection is already open or connecting to the same URL. This prevents duplicate connections from React re-renders or rapid state changes.",
       "acceptance": "connectWebSocket() checks: (1) wsRef.current exists, (2) readyState is OPEN or CONNECTING, (3) the target URL matches what we would connect to. If all three are true, return without creating a new connection. Store target URL on the socket object for comparison.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 6,
