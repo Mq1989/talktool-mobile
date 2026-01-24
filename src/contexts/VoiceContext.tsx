@@ -575,16 +575,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Connect WebSocket when callSid is set
+  // Connect WebSocket when callSid exists and call is active; disconnect when idle/ended
   useEffect(() => {
-    if (callSid) {
-      console.log('[VoiceContext] WS useEffect: callSid set, connecting WebSocket');
+    if (callSid && callState !== 'idle' && callState !== 'ended') {
+      shouldReconnectRef.current = true;
       connectWebSocket(callSid);
-    }
-    return () => {
+    } else {
       disconnectWebSocket();
-    };
-  }, [callSid]);
+    }
+  }, [callSid, callState]);
 
   // Reconnect WebSocket when app returns to foreground during active call
   useEffect(() => {

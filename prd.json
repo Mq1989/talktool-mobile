@@ -49,7 +49,7 @@
       "title": "Connection Lifecycle - Tie to Call State",
       "description": "WebSocket should only be connected when callSid exists AND callState is not 'idle' or 'ended'. On state transition to idle/ended, set shouldReconnectRef to false and close with code 1000. This matches the web frontend's useEffect pattern.",
       "acceptance": "useEffect watches callSid and callState. If callSid && callState !== 'idle' && callState !== 'ended': set shouldReconnectRef = true, call connectWebSocket(). Else: call closeWebSocket() which sets shouldReconnectRef = false, clears heartbeat, closes socket with code 1000.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 8,
