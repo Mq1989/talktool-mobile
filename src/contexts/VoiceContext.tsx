@@ -542,9 +542,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       case 'end-call':
         console.log('[VoiceContext] WS: end-call', msg.reason);
         shouldReconnectRef.current = false;
+        disconnectWebSocket();
+        AsyncStorage.removeItem('device-ws-instance');
+        wsInstanceRef.current = null;
         setCallState('ended');
         setCallSid(null);
-        disconnectWebSocket();
         break;
 
       case 'toggle-translation.ack':
@@ -950,7 +952,10 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error('[VoiceContext] Failed to disconnect call:', err);
     }
+    shouldReconnectRef.current = false;
     disconnectWebSocket();
+    AsyncStorage.removeItem('device-ws-instance');
+    wsInstanceRef.current = null;
     setActiveCall(null);
     setCallState('ended');
     setCallSid(null);

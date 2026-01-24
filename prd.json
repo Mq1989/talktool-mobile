@@ -70,7 +70,7 @@
       "title": "Clean Disconnect on Call End",
       "description": "When receiving end-call WebSocket message or when user ends call locally, perform a clean disconnect: set shouldReconnectRef to false, clear heartbeat interval, close WebSocket with code 1000, clear instanceId from AsyncStorage, and null out wsRef.",
       "acceptance": "handleEndCall() or end-call message handler: sets shouldReconnectRef = false, clearInterval(heartbeatRef), closes ws with code 1000 if readyState is OPEN/CONNECTING, removes 'device-ws-instance' from AsyncStorage, sets wsRef.current = null. No reconnection attempts fire after this.",
-      "passes": false
+      "passes": true
     },
     {
       "id": 11,
