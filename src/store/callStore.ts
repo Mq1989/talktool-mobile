@@ -8,6 +8,9 @@ interface CallState {
   callSid: string | null;
   transcriptions: Transcription[];
 
+  // Standalone call duration (increments regardless of activeCall)
+  callDuration: number;
+
   // Audio controls
   isMuted: boolean;
   isSpeakerOn: boolean;
@@ -28,6 +31,8 @@ interface CallState {
   setSocketConnected: (connected: boolean) => void;
   setSocketError: (error: string | null) => void;
   incrementDuration: () => void;
+  incrementCallDuration: () => void;
+  resetCallDuration: () => void;
   resetCallState: () => void;
 }
 
@@ -35,6 +40,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   activeCall: null,
   callSid: null,
   transcriptions: [],
+  callDuration: 0,
   isMuted: false,
   isSpeakerOn: false,
   isSocketConnected: false,
@@ -124,11 +130,21 @@ export const useCallStore = create<CallState>((set, get) => ({
         : null,
     })),
 
+  // Standalone duration increment - works regardless of activeCall state
+  incrementCallDuration: () =>
+    set((state) => ({
+      callDuration: state.callDuration + 1,
+    })),
+
+  resetCallDuration: () =>
+    set({ callDuration: 0 }),
+
   resetCallState: () =>
     set({
       activeCall: null,
       callSid: null,
       transcriptions: [],
+      callDuration: 0,
       isMuted: false,
       isSpeakerOn: false,
       isSocketConnected: false,

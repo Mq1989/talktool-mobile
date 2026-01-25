@@ -121,6 +121,9 @@ export function TranscriptionDisplay({
   transcripts,
   isTranslating = true
 }: TranscriptionDisplayProps) {
+  // DEBUG: Log what the component actually receives
+  console.log('[TranscriptionDisplay] Render - transcripts.length:', transcripts.length);
+
   const scrollViewRef = useRef<ScrollView>(null);
 
   useEffect(() => {

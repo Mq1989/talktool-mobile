@@ -110,9 +110,9 @@ export default function NewCallScreen() {
     }
   }, [numberConfigs, selectedCallerId]);
 
-  // Navigate to active call screen when call connects
+  // Navigate to active call screen when call is ringing or connected
   useEffect(() => {
-    if (callState === 'active' && callSid) {
+    if (['call-ringing', 'active'].includes(callState) && callSid) {
       router.replace(`/call/${callSid}`);
     }
   }, [callState, callSid, router]);

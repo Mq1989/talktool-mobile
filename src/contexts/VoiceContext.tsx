@@ -795,6 +795,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         console.log('[VoiceContext] Could not decode token payload');
       }
 
+      // Configure audio session for VoIP before connecting
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+      });
+
       console.log('[VoiceContext] makeCall: Setting callState to dialing');
       setCallState('dialing');
 

@@ -41,7 +41,9 @@ export default function ActiveCallScreen() {
     setSpeakerOn,
     setSocketConnected,
     setSocketError,
-    incrementDuration,
+    callDuration,
+    incrementCallDuration,
+    resetCallDuration,
     resetCallState,
   } = useCallStore();
 
@@ -73,12 +75,13 @@ export default function ActiveCallScreen() {
     setCallEnded(true);
     setEndReason(event.reason);
     endCallFromServer();
-    // Navigate after showing ended state
+    // Navigate after showing ended state - don't reset duration immediately so user can see final time
     setTimeout(() => {
+      resetCallDuration();
       resetCallState();
       router.replace('/(tabs)/calls');
     }, 2000);
-  }, [resetCallState, router, endCallFromServer]);
+  }, [resetCallState, resetCallDuration, router, endCallFromServer]);
 
   const handleTranslationStateChange = useCallback((state: TranslationState) => {
     console.log('Translation state changed:', state);
@@ -118,31 +121,33 @@ export default function ActiveCallScreen() {
   }, [wsError, setSocketError]);
 
   // Timer interval for active calls
+  // Timer starts when: Twilio SDK reports active OR display WS is joined (fallback for iOS)
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
 
-    const isActive = callState === 'active' || activeCall?.status === 'active';
+    const isActive = callState === 'active' || activeCall?.status === 'active' || isJoined;
     if (isActive && !callEnded) {
       interval = setInterval(() => {
-        incrementDuration();
+        incrementCallDuration();
       }, 1000);
     }
 
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [callState, activeCall?.status, incrementDuration, callEnded]);
+  }, [callState, activeCall?.status, incrementCallDuration, callEnded, isJoined]);
 
   // Handle call state changes from Twilio SDK
   useEffect(() => {
     if (callState === 'ended' && !callEnded) {
       setCallEnded(true);
       setTimeout(() => {
+        resetCallDuration();
         resetCallState();
         router.replace('/(tabs)/calls');
       }, 2000);
     }
-  }, [callState, callEnded, router, resetCallState]);
+  }, [callState, callEnded, router, resetCallState, resetCallDuration]);
 
   // Debug: Log whenever displayTranscripts changes
   useEffect(() => {
@@ -173,6 +178,7 @@ export default function ActiveCallScreen() {
             endCallFromServer();
             setCallEnded(true);
             setTimeout(() => {
+              resetCallDuration();
               resetCallState();
               router.replace('/(tabs)/calls');
             }, 1000);
@@ -203,7 +209,8 @@ export default function ActiveCallScreen() {
   }
 
   const call = activeCall ?? callDetail;
-  const duration = activeCall?.duration ?? 0;
+  // Use standalone callDuration (works even when activeCall is null), fallback to activeCall.duration
+  const duration = callDuration || activeCall?.duration || 0;
 
   // Determine display status
   let displayStatus: CallDisplayStatus = 'connecting';
@@ -314,6 +321,7 @@ export default function ActiveCallScreen() {
           </View>
         )}
         <TranscriptionDisplay
+          key={`transcripts-${displayTranscripts.length}`}
           transcripts={displayTranscripts}
           isTranslating={translationState?.isTranslating ?? true}
         />
