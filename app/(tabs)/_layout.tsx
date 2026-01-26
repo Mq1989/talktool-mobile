@@ -193,7 +193,7 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
   ];
 
   return (
-    <View style={[styles.tabBarWrapper, { paddingBottom: insets.bottom }]}>
+    <View style={styles.tabBarWrapper}>
       <BlurView intensity={80} tint="light" style={styles.blurContainer}>
         <View style={styles.tabBarContent}>
           {tabConfig.map((tab, index) => {
@@ -304,9 +304,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: 'transparent',
+    overflow: 'visible',
   },
   blurContainer: {
-    overflow: 'hidden',
+    overflow: 'visible',
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.05)',
   },
@@ -317,6 +318,7 @@ const styles = StyleSheet.create({
     height: TAB_BAR_HEIGHT,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 8,
+    overflow: 'visible',
   },
 
   // Tab Button
@@ -356,12 +358,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: FAB_SIZE + 8,
+    marginTop: -20,
   },
   fabGlow: {
     position: 'absolute',
-    width: FAB_SIZE + 16,
-    height: FAB_SIZE + 16,
-    borderRadius: (FAB_SIZE + 16) / 2,
+    width: FAB_SIZE + 20,
+    height: FAB_SIZE + 20,
+    borderRadius: (FAB_SIZE + 20) / 2,
     backgroundColor: brand.blue.primary,
   },
   fab: {
@@ -372,9 +375,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: brand.blue.dark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
   },
 });

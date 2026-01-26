@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Animated,
   Dimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -28,6 +27,7 @@ import {
   formatPhoneNumber,
   formatDateTime,
   formatDate,
+  formatTime,
 } from '../../../src/utils/helpers';
 import { getLanguageFlag, getLanguageName } from '../../../src/utils/languages';
 import type { CallHistoryItem } from '../../../src/types/call.types';
@@ -214,8 +214,6 @@ function SectionHeader({ title, icon }: { title: string; icon?: keyof typeof Ion
 export default function CallDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const scrollY = useRef(new Animated.Value(0)).current;
-
   const { data: call, isLoading, error, refetch } = useCallDetail(id ?? '');
   const { data: transcript } = useCallTranscript(id ?? '');
 
@@ -226,13 +224,6 @@ export default function CallDetailsScreen() {
     await refetch();
     setRefreshing(false);
   }, [refetch]);
-
-  // Animated header opacity
-  const headerBgOpacity = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
 
   if (isLoading) {
     return (
@@ -273,8 +264,9 @@ export default function CallDetailsScreen() {
   const contactName = call.contactName || formatPhoneNumber(call.phoneNumber || call.from || call.to || '');
   const phoneNumber = call.phoneNumber || call.from || call.to || call.number || '';
   const duration = call.durationSeconds ?? call.duration ?? 0;
-  const startTime = call.startedAt || call.startTime;
-  const endTime = call.endedAt;
+  // Use startedAt, startTime, or createdAt as fallback for date/time display
+  const startTime = call.startedAt || call.startTime || call.createdAt;
+  const endTime = call.endedAt || call.updatedAt;
   const isVoicemail = call.type === 'voicemail';
   const hasRecording = !!call.recordingUrl;
   const hasTranscript = !!(call.transcriptMessages && call.transcriptMessages.length > 0) || !!call.transcriptionText;
@@ -282,13 +274,8 @@ export default function CallDetailsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Animated Header */}
-      <Animated.View style={[styles.animatedHeader, { opacity: headerBgOpacity }]}>
-        <View style={styles.animatedHeaderBg} />
-      </Animated.View>
-
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Fixed Header */}
+        {/* Fixed Header with solid background */}
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color={brand.gray[800]} />
@@ -299,15 +286,10 @@ export default function CallDetailsScreen() {
           </TouchableOpacity>
         </View>
 
-        <Animated.ScrollView
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          onScroll={Animated.event(
-            [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-            { useNativeDriver: true }
-          )}
-          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={brand.blue.primary} />
           }
@@ -364,18 +346,18 @@ export default function CallDetailsScreen() {
             <MetricTile
               icon="calendar-outline"
               label="Date"
-              value={startTime ? formatDate(startTime) : '—'}
+              value={formatDate(startTime)}
             />
             <MetricTile
               icon="time-outline"
               label="Started"
-              value={startTime ? new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+              value={formatTime(startTime)}
               accent
             />
             <MetricTile
               icon="flag-outline"
               label="Ended"
-              value={endTime ? new Date(endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+              value={formatTime(endTime)}
             />
           </View>
 
@@ -465,7 +447,7 @@ export default function CallDetailsScreen() {
           </View>
 
           <View style={styles.bottomSpacer} />
-        </Animated.ScrollView>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -504,22 +486,6 @@ const styles = StyleSheet.create({
     backgroundColor: brand.blue.lighter,
   },
 
-  // Animated Header
-  animatedHeader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 100,
-    zIndex: 10,
-  },
-  animatedHeaderBg: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: brand.gray[100],
-  },
-
   // Fixed Header
   header: {
     flexDirection: 'row',
@@ -527,7 +493,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    zIndex: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: brand.gray[100],
   },
   backButton: {
     width: 40,

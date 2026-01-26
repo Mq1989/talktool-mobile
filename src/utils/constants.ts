@@ -1,11 +1,21 @@
 // Use environment variables with fallbacks for development
 
+// App mode from environment
+export const APP_MODE = process.env.EXPO_PUBLIC_APP_MODE ?? (__DEV__ ? 'development' : 'production');
+export const IS_PRODUCTION = APP_MODE === 'production';
+
 // Next.js Backend - for data operations (user profile, calls history, contacts, etc.)
+// Note: iOS can't access localhost, so dev fallback uses ngrok
 export const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL
   ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api`
-  : __DEV__
-    ? 'http://localhost:3000/api'
-    : 'https://usetalktool.com/api';
+  : IS_PRODUCTION
+    ? 'https://usetalktool.com/api'
+    : 'https://usetalktoolfrontend.ngrok.app/api';
+
+// Web Base URL (for opening Safari - must match same Clerk instance as API)
+// Note: iOS can't access localhost, so dev fallback uses ngrok
+export const WEB_BASE_URL = process.env.EXPO_PUBLIC_WEB_URL
+  ?? (IS_PRODUCTION ? 'https://usetalktool.com' : 'https://usetalktoolfrontend.ngrok.app');
 
 // Twilio/Call Server - for call handling, access tokens, availability
 export const TWILIO_SERVER_URL = process.env.EXPO_PUBLIC_TWILIO_SERVER_URL

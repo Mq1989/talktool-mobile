@@ -147,21 +147,21 @@ export const apiEndpoints = {
   // Availability
   getAvailabilityStatus: (phoneNumber: string, userId?: string) =>
     api.get('/availability/status', { params: { phoneNumber, userId } }),
-  setAvailable: (userId: string, orgId: string, phoneNumber: string) =>
+  setAvailable: (userId: string, orgId: string | null | undefined, phoneNumber: string) =>
     api.post('/availability/set-available', { userId, orgId, phoneNumber }),
-  setAvailableMulti: (userId: string, orgId: string, phoneNumbers: string[]) =>
+  setAvailableMulti: (userId: string, orgId: string | null | undefined, phoneNumbers: string[]) =>
     api.post('/availability/set-available-multi', { userId, orgId, phoneNumbers }),
-  setUnavailable: (userId: string, orgId: string, phoneNumber: string) =>
+  setUnavailable: (userId: string, orgId: string | null | undefined, phoneNumber: string) =>
     api.post('/availability/set-unavailable', { userId, orgId, phoneNumber }),
-  setUnavailableAll: (userId: string, orgId: string) =>
+  setUnavailableAll: (userId: string, orgId: string | null | undefined) =>
     api.post('/availability/set-unavailable-all', { userId, orgId }),
-  setBusy: (userId: string, orgId: string, phoneNumber: string) =>
+  setBusy: (userId: string, orgId: string | null | undefined, phoneNumber: string) =>
     api.post('/availability/set-busy', { userId, orgId, phoneNumber }),
-  setRinging: (userId: string, orgId: string, phoneNumber: string) =>
+  setRinging: (userId: string, orgId: string | null | undefined, phoneNumber: string) =>
     api.post('/availability/set-ringing', { userId, orgId, phoneNumber }),
-  sendHeartbeat: (userId: string, orgId: string, phoneNumber: string, deviceId: string, status: string) =>
+  sendHeartbeat: (userId: string, orgId: string | null | undefined, phoneNumber: string, deviceId: string, status: string) =>
     api.post('/availability/heartbeat', { userId, orgId, phoneNumber, deviceId, status }),
-  sendHeartbeatMulti: (userId: string, orgId: string, phoneNumbers: string[], deviceId: string, status: string) =>
+  sendHeartbeatMulti: (userId: string, orgId: string | null | undefined, phoneNumbers: string[], deviceId: string, status: string) =>
     api.post('/availability/heartbeat-multi', { userId, orgId, phoneNumbers, deviceId, status }),
   getAvailabilityPreferences: () => api.get('/availability/preferences'),
   updateAvailabilityPreferences: (data: { preferredNumbers?: string[]; autoRestoreEnabled?: boolean }) =>

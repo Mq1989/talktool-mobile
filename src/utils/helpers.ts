@@ -1,4 +1,4 @@
-import { format, formatDistanceToNow, parseISO } from 'date-fns';
+import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 
 export function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -17,18 +17,57 @@ export function formatPhoneNumber(phone: string): string {
   return phone;
 }
 
-export function formatDate(date: Date | string): string {
-  const d = typeof date === 'string' ? parseISO(date) : date;
+/**
+ * Parse a date from various formats (ISO string, Date object, timestamp)
+ */
+function parseDate(date: Date | string | number): Date | null {
+  try {
+    if (date instanceof Date) {
+      return isValid(date) ? date : null;
+    }
+    if (typeof date === 'number') {
+      const d = new Date(date);
+      return isValid(d) ? d : null;
+    }
+    if (typeof date === 'string') {
+      // Try ISO parse first
+      let d = parseISO(date);
+      if (isValid(d)) return d;
+      // Fallback to native Date parsing
+      d = new Date(date);
+      if (isValid(d)) return d;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatDate(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '—';
+  const d = parseDate(date);
+  if (!d) return '—';
   return format(d, 'MMM d, yyyy');
 }
 
-export function formatDateTime(date: Date | string): string {
-  const d = typeof date === 'string' ? parseISO(date) : date;
+export function formatDateTime(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '—';
+  const d = parseDate(date);
+  if (!d) return '—';
   return format(d, 'MMM d, yyyy h:mm a');
 }
 
-export function formatRelativeTime(date: Date | string): string {
-  const d = typeof date === 'string' ? parseISO(date) : date;
+export function formatTime(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '—';
+  const d = parseDate(date);
+  if (!d) return '—';
+  return format(d, 'h:mm a');
+}
+
+export function formatRelativeTime(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '—';
+  const d = parseDate(date);
+  if (!d) return '—';
   return formatDistanceToNow(d, { addSuffix: true });
 }
 

@@ -25,7 +25,7 @@ let state: AvailabilityState = {
 };
 
 const sendHeartbeat = async () => {
-  if (!state.isAvailable || state.activeNumbers.length === 0 || !state.userId || !state.orgId) {
+  if (!state.isAvailable || state.activeNumbers.length === 0 || !state.userId) {
     return;
   }
 
@@ -121,8 +121,8 @@ export const availabilityService = {
    * Uses multi-number API when multiple numbers provided
    */
   async setAvailable(numbers: string[]) {
-    if (!state.userId || !state.orgId) {
-      console.error('[availabilityService] Cannot set available - missing userId or orgId');
+    if (!state.userId) {
+      console.error('[availabilityService] Cannot set available - missing userId');
       return;
     }
 
@@ -148,7 +148,7 @@ export const availabilityService = {
    * Set status to unavailable for all numbers
    */
   async setUnavailable() {
-    if (!state.userId || !state.orgId) {
+    if (!state.userId) {
       // Just clear local state
       state.isAvailable = false;
       state.activeNumbers = [];
@@ -174,7 +174,7 @@ export const availabilityService = {
    * Set status to unavailable for a single number
    */
   async setUnavailableForNumber(number: string) {
-    if (!state.userId || !state.orgId) {
+    if (!state.userId) {
       return;
     }
 
@@ -197,8 +197,8 @@ export const availabilityService = {
    * Update availability for a single number
    */
   async toggleNumberAvailability(number: string, available: boolean) {
-    if (!state.userId || !state.orgId) {
-      console.error('[availabilityService] Cannot toggle - missing userId or orgId');
+    if (!state.userId) {
+      console.error('[availabilityService] Cannot toggle - missing userId');
       return;
     }
 
@@ -233,7 +233,7 @@ export const availabilityService = {
    * Set status to busy (on a call)
    */
   async setBusy(number: string) {
-    if (!state.userId || !state.orgId) {
+    if (!state.userId) {
       return;
     }
 
@@ -249,7 +249,7 @@ export const availabilityService = {
    * Set status to ringing (incoming call)
    */
   async setRinging(number: string) {
-    if (!state.userId || !state.orgId) {
+    if (!state.userId) {
       return;
     }
 

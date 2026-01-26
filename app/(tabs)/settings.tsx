@@ -14,12 +14,13 @@ import * as Linking from 'expo-linking';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useUser, useOrganization } from '@clerk/clerk-expo';
 import { useAuth, useBalance } from '../../src/hooks';
 import { useVoice } from '../../src/contexts/VoiceContext';
 import { useSettingsStore } from '../../src/store/settingsStore';
 import { availabilityService } from '../../src/services/availabilityService';
 import { apiEndpoints } from '../../src/services/api';
-import { API_BASE_URL, QUERY_KEYS } from '../../src/utils/constants';
+import { WEB_BASE_URL, QUERY_KEYS } from '../../src/utils/constants';
 import { getLanguageName, LanguageCode } from '../../src/utils/languages';
 
 // TalkTool brand colors - refined palette (matching dashboard)
@@ -91,6 +92,7 @@ const colors = {
 interface NumberConfig {
   phoneNumber: string;
   friendlyName?: string;
+  isShared?: boolean;
 }
 
 // Setting Row Component
@@ -161,7 +163,9 @@ function SettingsCard({ children }: { children: React.ReactNode }) {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout, isLoading: isLoggingOut, getToken } = useAuth();
+  const { user: clerkUser } = useUser();
+  const { organization } = useOrganization();
+  const { user, logout, isLoading: isLoggingOut } = useAuth();
   const { isRegistered } = useVoice();
   const {
     defaultLanguage,
@@ -189,17 +193,28 @@ export default function SettingsScreen() {
     },
   });
 
-  // Initialize availability service
+  // Filter to only dedicated numbers (isShared === false means dedicated)
+  // Numbers without isShared field are treated as shared (cannot receive calls)
+  const dedicatedNumbers = numberConfigs?.filter(n => n.isShared === false) ?? [];
+  const canUseAvailability = !!organization?.id && dedicatedNumbers.length > 0;
+
+  // Initialize availability service with Clerk credentials
   useEffect(() => {
-    availabilityService.init();
+    const userId = clerkUser?.id;
+    const orgId = organization?.id;
+
+    if (userId) {
+      availabilityService.init(userId, orgId);
+    }
+
     return () => {
       availabilityService.cleanup();
     };
-  }, []);
+  }, [clerkUser?.id, organization?.id]);
 
   const handleAvailabilityToggle = async (value: boolean) => {
-    if (value && numberConfigs && numberConfigs.length > 0) {
-      const numbers = numberConfigs.map(n => n.phoneNumber);
+    if (value && dedicatedNumbers.length > 0) {
+      const numbers = dedicatedNumbers.map(n => n.phoneNumber);
       await availabilityService.setAvailable(numbers);
       setAvailableNumbers(numbers);
     } else {
@@ -210,32 +225,10 @@ export default function SettingsScreen() {
   };
 
   const handleManageSubscription = async () => {
-    try {
-      const authToken = await getToken();
-
-      // Request a sign-in token from backend
-      const response = await fetch(`${API_BASE_URL}/auth/sign-in-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      const baseUrl = 'https://usetalktool.com/dashboard/plans';
-
-      if (response.ok) {
-        const { token } = await response.json();
-        // Use __clerk_ticket param for Clerk's ticket sign-in strategy
-        await Linking.openURL(`${baseUrl}?__clerk_ticket=${token}`);
-      } else {
-        // Fallback without auth if token request fails
-        await Linking.openURL(baseUrl);
-      }
-    } catch (error) {
-      console.error('Failed to open subscription page:', error);
-      await Linking.openURL('https://usetalktool.com/dashboard/plans');
-    }
+    // Open dashboard directly - web app will handle auth
+    // If already signed in on web, goes straight to plans
+    // If not signed in, web app redirects to login then back to plans
+    await Linking.openURL(`${WEB_BASE_URL}/dashboard/plans`);
   };
 
   const handleLogout = () => {
@@ -305,13 +298,21 @@ export default function SettingsScreen() {
                 onValueChange={handleAvailabilityToggle}
                 trackColor={{ false: colors.slate[200], true: colors.emerald[500] }}
                 thumbColor={colors.white}
-                disabled={!numberConfigs || numberConfigs.length === 0}
+                disabled={!canUseAvailability}
               />
             }
             showArrow={false}
             isFirst
-            isLast={!isRegistered}
+            isLast={!isRegistered && canUseAvailability}
           />
+          {!canUseAvailability && (
+            <View style={styles.disabledExplanation}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.slate[400]} />
+              <Text style={styles.disabledText}>
+                Availability requires a dedicated phone number
+              </Text>
+            </View>
+          )}
           {isRegistered && (
             <View style={styles.statusIndicator}>
               <View style={[
@@ -711,6 +712,23 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 13,
     color: colors.slate[500],
+  },
+
+  // Disabled Explanation
+  disabledExplanation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.slate[50],
+    gap: 8,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  disabledText: {
+    fontSize: 13,
+    color: colors.slate[400],
+    flex: 1,
   },
 
   // Sign Out Button
