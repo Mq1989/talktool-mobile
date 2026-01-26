@@ -362,28 +362,43 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     repLang?: string;
     customerLang?: string;
   }) => {
+    console.log('[VoiceContext] createCallRecord called with:', effectiveCallSid);
     try {
       const authToken = await getToken();
-      if (!authToken) return;
+      if (!authToken) {
+        console.error('[VoiceContext] createCallRecord: No auth token available');
+        return;
+      }
+      console.log('[VoiceContext] createCallRecord: Making POST to', `${API_BASE_URL}/call`);
 
-      await fetch(`${API_BASE_URL}/call`, {
+      const requestBody = {
+        callSid: effectiveCallSid,
+        from: overrides?.from ?? callInfo?.from ?? '',
+        to: overrides?.to ?? callInfo?.to ?? '',
+        direction: overrides?.direction ?? callInfo?.direction ?? 'outbound',
+        repLang: overrides?.repLang ?? callLanguages?.srcLang ?? 'en-US',
+        customerLang: overrides?.customerLang ?? callLanguages?.dstLang ?? 'en-US',
+      };
+      console.log('[VoiceContext] createCallRecord: Request body:', JSON.stringify(requestBody));
+
+      const response = await fetch(`${API_BASE_URL}/call`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({
-          callSid: effectiveCallSid,
-          from: overrides?.from ?? callInfo?.from ?? '',
-          to: overrides?.to ?? callInfo?.to ?? '',
-          direction: overrides?.direction ?? callInfo?.direction ?? 'outbound',
-          repLang: overrides?.repLang ?? callLanguages?.srcLang ?? 'en-US',
-          customerLang: overrides?.customerLang ?? callLanguages?.dstLang ?? 'en-US',
-        }),
+        body: JSON.stringify(requestBody),
       });
-      console.log('[VoiceContext] Call record created for:', effectiveCallSid);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[VoiceContext] createCallRecord failed - API returned:', response.status, errorData);
+        return;
+      }
+
+      console.log('[VoiceContext] Call record created successfully for:', effectiveCallSid);
     } catch (err) {
-      console.error('[VoiceContext] Failed to create call record:', err);
+      console.error('[VoiceContext] createCallRecord exception:', err);
     }
   };
 
@@ -693,6 +708,16 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         setCallSid(sid);
         setCallState('active');
         setActiveCall(null);
+
+        // Create call record since Connected event won't fire
+        createCallRecord(sid, {
+          from: callParams?.from || '',
+          to: callParams?.to || '',
+          direction: callParams?.direction || 'outbound',
+          repLang: callParams?.repLang || 'en-US',
+          customerLang: callParams?.customerLang || 'en-US',
+        });
+
         return;
       }
 
