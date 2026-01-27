@@ -318,6 +318,7 @@ const styles = StyleSheet.create({
     height: TAB_BAR_HEIGHT,
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     paddingHorizontal: 8,
+    paddingBottom: 8,
     overflow: 'visible',
   },
 

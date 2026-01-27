@@ -17,8 +17,17 @@ const transformCallData = (call: CallHistoryItem): CallHistoryItem => {
   // Get contact info if populated
   const contactObj = typeof call.contact === 'object' ? call.contact as Contact : null;
 
-  // Compute phone number from available fields
-  const phoneNumber = call.from || call.to || call.number || call.thirdParty || '';
+  // Compute customer phone number based on call direction
+  // - Outbound calls: customer is the callee (to number)
+  // - Inbound calls: customer is the caller (from number)
+  let phoneNumber = '';
+  if (call.direction === 'inbound') {
+    // For inbound calls, the customer initiated the call (from number)
+    phoneNumber = call.from || call.thirdParty || call.number || '';
+  } else {
+    // For outbound calls (outbound-api, outbound-dial), the customer was called (to number)
+    phoneNumber = call.to || call.number || call.thirdParty || '';
+  }
 
   // Compute contact name from contact object
   const contactName = contactObj

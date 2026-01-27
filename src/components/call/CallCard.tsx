@@ -358,6 +358,7 @@ export function CallCard({ call, variant = 'full', showActions = true, onPress }
     : '#';
 
   const isMissed = call.status === 'missed';
+  const isInbound = call.direction === 'inbound';
   const status = call.status as keyof typeof statusConfig;
   const statusCfg = statusConfig[status] || statusConfig.completed;
 
@@ -418,7 +419,15 @@ export function CallCard({ call, variant = 'full', showActions = true, onPress }
           {/* Content */}
           <View style={compactStyles.content}>
             <View style={compactStyles.topRow}>
-              <Text style={compactStyles.name} numberOfLines={1}>{contactDisplay}</Text>
+              <View style={compactStyles.nameRow}>
+                <Ionicons
+                  name={isInbound ? 'arrow-down' : 'arrow-up'}
+                  size={12}
+                  color={isInbound ? palette.jade[500] : palette.azure[500]}
+                  style={compactStyles.directionIcon}
+                />
+                <Text style={compactStyles.name} numberOfLines={1}>{contactDisplay}</Text>
+              </View>
               <Text style={compactStyles.time}>{formatDate(callTime)}</Text>
             </View>
             <View style={compactStyles.bottomRow}>
@@ -474,7 +483,15 @@ export function CallCard({ call, variant = 'full', showActions = true, onPress }
 
             {/* Name and phone */}
             <View style={styles.nameBlock}>
-              <Text style={styles.contactName} numberOfLines={1}>{contactDisplay}</Text>
+              <View style={styles.nameRow}>
+                <Ionicons
+                  name={isInbound ? 'arrow-down' : 'arrow-up'}
+                  size={14}
+                  color={isInbound ? palette.jade[500] : palette.azure[500]}
+                  style={styles.directionIcon}
+                />
+                <Text style={styles.contactName} numberOfLines={1}>{contactDisplay}</Text>
+              </View>
               {call.contactName && (
                 <Text style={styles.phoneNumber}>{formatPhoneNumber(phone)}</Text>
               )}
@@ -583,12 +600,20 @@ const compactStyles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 4,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 12,
+  },
+  directionIcon: {
+    marginRight: 4,
+  },
   name: {
     fontSize: 15,
     fontWeight: '600',
     color: palette.ink[900],
     flex: 1,
-    marginRight: 12,
   },
   time: {
     fontSize: 11,
@@ -672,12 +697,20 @@ const styles = StyleSheet.create({
   nameBlock: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  directionIcon: {
+    marginRight: 6,
+  },
   contactName: {
     fontSize: 17,
     fontWeight: '700',
     color: palette.ink[900],
     letterSpacing: -0.3,
     marginBottom: 2,
+    flex: 1,
   },
   phoneNumber: {
     fontSize: 13,
