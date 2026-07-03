@@ -17,16 +17,23 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL
 export const WEB_BASE_URL = process.env.EXPO_PUBLIC_WEB_URL
   ?? (IS_PRODUCTION ? 'https://usetalktool.com' : 'https://usetalktoolfrontend.ngrok.app');
 
-// Twilio/Call Server - for call handling, access tokens, availability
+// LiveKit call server (livekit-server.js) - place-call/token, /call/display
+// socket, /agent/notify, availability. NOTE: despite the name, this is the
+// LiveKit Express server, NOT the legacy Twilio server.js.
+// iOS can't reach localhost, so dev also points at the ngrok tunnel that fronts
+// the local livekit-server (run `ngrok http 8090`).
 export const TWILIO_SERVER_URL = process.env.EXPO_PUBLIC_TWILIO_SERVER_URL
-  ?? (__DEV__ ? 'http://localhost:3001' : 'https://usetalktoolserver.ngrok.app');
+  ?? 'https://usetalktoolserver.ngrok.app';
 
-// WebSocket URL - for real-time transcripts during calls
+// WebSocket URL - for real-time transcripts during calls.
+// DERIVED from TWILIO_SERVER_URL (http->ws, https->wss) so the place-call host
+// and the /call/display socket host can NEVER drift apart. They must resolve to
+// the same livekit-server process: place-call creates the in-memory session
+// that the display socket attaches to. Override with EXPO_PUBLIC_WEBSOCKET_URL
+// only if you know it points at the same host.
 export const WS_BASE_URL =
   process.env.EXPO_PUBLIC_WEBSOCKET_URL ??
-  (__DEV__
-    ? "ws://usetalktoolserver.ngrok.app"
-    : "wss://usetalktoolserver.ngrok.app");
+  TWILIO_SERVER_URL.replace(/^http(s?):\/\//, (_m: string, s: string) => (s ? 'wss://' : 'ws://'));
 
 // Live Translation WebSocket URL - for live translate feature
 export const LIVE_TRANS_WS_URL = process.env.EXPO_PUBLIC_LIVE_TRANS_URL

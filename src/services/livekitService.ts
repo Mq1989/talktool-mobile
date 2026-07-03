@@ -32,6 +32,10 @@ export interface PlaceCallResponse {
   livekitUrl: string;
   callSid: string;
   repIdentity: string;
+  // Call-bound token authorizing the /call/display transcript subscription.
+  // Passed to the display socket as `?auth=`. Server returns null when it has
+  // no DISPLAY_TOKEN_SECRET configured (dev with enforcement off).
+  displayToken: string | null;
 }
 
 export interface RefreshTokenResponse {

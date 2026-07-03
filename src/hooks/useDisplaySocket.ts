@@ -46,6 +46,9 @@ export interface CallEndEvent {
 
 interface UseDisplaySocketOptions {
   callSid: string | null;
+  /** Call-bound display token (from /livekit/place-call), sent as `?auth=`.
+   *  Required by the server in production (DISPLAY_WS_ENFORCE); log-only in dev. */
+  token?: string | null;
   onTranscript?: (transcript: DisplayTranscript) => void;
   onCallEnd?: (event: CallEndEvent) => void;
   onCallAnswered?: () => void;
@@ -71,6 +74,7 @@ interface UseDisplaySocketReturn {
 
 export function useDisplaySocket({
   callSid,
+  token,
   onTranscript,
   onCallEnd,
   onCallAnswered,
@@ -172,15 +176,19 @@ export function useDisplaySocket({
     disconnect();
 
     try {
-      // Backend (livekit-server.js) expects callSid as a query param.
-      const wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(callSid)}`;
-      console.log('[DisplaySocket] Connecting to:', wsUrl);
+      // Backend (livekit-server.js) expects callSid as a query param, plus a
+      // call-bound display token as `auth` (enforced in prod, log-only in dev).
+      let wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(callSid)}`;
+      if (token) wsUrl += `&auth=${encodeURIComponent(token)}`;
+      // Never log the raw token (call-bound credential).
+      const wsUrlForLog = wsUrl.replace(/([?&]auth=)[^&]+/, '$1***');
+      console.log('[DisplaySocket] Connecting to:', wsUrlForLog, token ? '(with auth)' : '(no token)');
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[DisplaySocket] ✅ WebSocket OPEN - connected to:', wsUrl);
+        console.log('[DisplaySocket] ✅ WebSocket OPEN - connected to:', wsUrlForLog);
         setIsConnected(true);
         setError(null);
         reconnectAttempts.current = 0;
@@ -383,7 +391,7 @@ export function useDisplaySocket({
       setError('Failed to connect');
       onErrorRef.current?.('Failed to connect');
     }
-  }, [callSid, disconnect, clearTimers]);
+  }, [callSid, token, disconnect, clearTimers]);
 
   // Handle app state changes (foreground/background)
   useEffect(() => {
@@ -411,7 +419,8 @@ export function useDisplaySocket({
     return () => {
       disconnect();
     };
-  }, [callSid]);
+    // token included so a late-arriving display token re-dials with `?auth=`.
+  }, [callSid, token]);
 
   const reconnect = useCallback(() => {
     reconnectAttempts.current = 0;

@@ -74,6 +74,7 @@ interface VoiceContextType {
   isMuted: boolean;
   isSpeakerOn: boolean;
   callSid: string | null;
+  displayToken: string | null;
   callInfo: CallInfo | null;
   callLanguages: CallLanguages | null;
   callStartTime: number | null;
@@ -136,6 +137,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callSid, setCallSid] = useState<string | null>(null);
+  // Call-bound display token from /livekit/place-call, sent to the /call/display
+  // socket as `?auth=`. Tracks callSid's lifecycle (set together, cleared together).
+  const [displayToken, setDisplayToken] = useState<string | null>(null);
   const [callInfo, setCallInfo] = useState<CallInfo | null>(null);
   const [callLanguages, setCallLanguages] = useState<CallLanguages | null>(null);
   const [callStartTime, setCallStartTime] = useState<number | null>(null);
@@ -398,6 +402,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setActiveCall(null);
       setCallState('ended');
       setCallSid(null);
+      setDisplayToken(null);
       setIsMuted(false);
     });
     r.on(RoomEvent.Reconnecting, () => setCallState('reconnecting'));
@@ -452,6 +457,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         roomName: result.roomName,
         callSid: result.callSid,
         repIdentity: result.repIdentity,
+        hasDisplayToken: !!result.displayToken,
       });
 
       repIdentityRef.current = result.repIdentity;
@@ -474,6 +480,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
       setRoom(r);
       setCallSid(result.callSid);
+      setDisplayToken(result.displayToken ?? null);
       setCallInfo(prev => prev ? { ...prev, callSid: result.callSid } : prev);
       setCallStartTime(Date.now());
       setIsTranslating(params.translateInitially !== false);
@@ -611,6 +618,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setActiveCall(null);
     setCallState('ended');
     setCallSid(null);
+    setDisplayToken(null);
     setIsMuted(false);
   }, [activeCall]);
 
@@ -696,6 +704,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     teardownRoom();
     setCallState('ended');
     setCallSid(null);
+    setDisplayToken(null);
     setActiveCall(null);
     setIsMuted(false);
   }, []);
@@ -729,6 +738,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     isMuted,
     isSpeakerOn,
     callSid,
+    displayToken,
     callInfo,
     callLanguages,
     callStartTime,

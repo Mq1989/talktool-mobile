@@ -51,6 +51,7 @@ export default function ActiveCallScreen() {
   const {
     callState,
     callSid,
+    displayToken,
     hangUp,
     toggleMute,
     toggleSpeaker,
@@ -110,6 +111,10 @@ export default function ActiveCallScreen() {
     // Drop the socket the instant the call ends so we stop receiving
     // transcripts from a customer leg that may still be alive backend-side.
     callSid: callEnded ? null : (id ?? callSid),
+    // Display token from place-call authorizes the transcript subscription in
+    // prod. Present for a fresh outbound call; null when re-opened from history
+    // by route param (that path needs a token minted server-side — see plan).
+    token: callEnded ? null : displayToken,
     onTranscript: handleTranscript,
     onCallEnd: handleCallEnd,
     onCallAnswered: handleCallAnswered,
