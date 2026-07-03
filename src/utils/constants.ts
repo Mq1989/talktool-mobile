@@ -19,11 +19,11 @@ export const WEB_BASE_URL = process.env.EXPO_PUBLIC_WEB_URL
 
 // LiveKit call server (livekit-server.js) - place-call/token, /call/display
 // socket, /agent/notify, availability. NOTE: despite the name, this is the
-// LiveKit Express server, NOT the legacy Twilio server.js.
-// iOS can't reach localhost, so dev also points at the ngrok tunnel that fronts
-// the local livekit-server (run `ngrok http 8090`).
+// LiveKit Express server, NOT the legacy Twilio server.js. Deployed on Fly at
+// numberlang-livekit-server.fly.dev (override with EXPO_PUBLIC_TWILIO_SERVER_URL
+// to point at a local livekit-server behind ngrok for backend development).
 export const TWILIO_SERVER_URL = process.env.EXPO_PUBLIC_TWILIO_SERVER_URL
-  ?? 'https://usetalktoolserver.ngrok.app';
+  ?? 'https://numberlang-livekit-server.fly.dev';
 
 // WebSocket URL - for real-time transcripts during calls.
 // DERIVED from TWILIO_SERVER_URL (http->ws, https->wss) so the place-call host
