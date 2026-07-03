@@ -11,6 +11,7 @@ import {
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -44,9 +45,8 @@ export default function NewCallScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ phone?: string; lang?: string }>();
   const { defaultLanguage, defaultSpeakerMode } = useSettingsStore();
-  const { makeCall, callState, callSid, error: voiceError, clearError, testVoiceSetup, isVoiceSupported } = useVoice();
+  const { makeCall, callState, callSid, error: voiceError, clearError } = useVoice();
   const { organization } = useOrganization();
-  const [testResult, setTestResult] = useState<string | null>(null);
 
   // Ensure valid language codes with fallbacks
   const [fromLanguage, setFromLanguage] = useState<string>(defaultLanguage || 'EN_US');
@@ -110,9 +110,11 @@ export default function NewCallScreen() {
     }
   }, [numberConfigs, selectedCallerId]);
 
-  // Navigate to active call screen when call is ringing or connected
+  // Navigate to active call screen as soon as LiveKit place-call returns a
+  // callSid. The active screen owns the display WS connection and surfaces
+  // ringing/connecting/active transitions.
   useEffect(() => {
-    if (['call-ringing', 'active'].includes(callState) && callSid) {
+    if (['dialing', 'call-ringing', 'active'].includes(callState) && callSid) {
       router.replace(`/call/${callSid}`);
     }
   }, [callState, callSid, router]);
@@ -160,9 +162,10 @@ export default function NewCallScreen() {
         fromNumber: selectedCallerId,
         fromLanguage,
         toLanguage,
-        // iOS call parameters for /iosCall endpoint
         orgId: organization?.id,
         translateInitially: true,
+        // Recording is decided here, before the call — no in-call toggle.
+        shouldRecord: enableRecording,
       });
       console.log('[NewCall] makeCall completed');
     } catch (err) {
@@ -172,12 +175,6 @@ export default function NewCallScreen() {
   };
 
   const isCallInProgress = callState === 'connecting' || callState === 'ringing';
-
-  const handleTestSetup = async () => {
-    setTestResult('Running tests...');
-    const result = await testVoiceSetup();
-    setTestResult(result.message);
-  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -206,7 +203,7 @@ export default function NewCallScreen() {
               style={styles.swapButton}
               onPress={handleSwapLanguages}
             >
-              <Text style={styles.swapIcon}>↕</Text>
+              <Ionicons name="swap-vertical" size={18} color={colors.gray[600]} />
             </TouchableOpacity>
 
             <LanguageSelector
@@ -251,7 +248,7 @@ export default function NewCallScreen() {
             ) : !numberConfigs || numberConfigs.length === 0 ? (
               <View style={styles.callerIdEmptyCard}>
                 <View style={styles.callerIdEmptyIcon}>
-                  <Text style={styles.callerIdEmptyIconText}>📱</Text>
+                  <Ionicons name="call-outline" size={24} color={colors.amber[600]} />
                 </View>
                 <Text style={styles.callerIdEmptyTitle}>No Phone Numbers</Text>
                 <Text style={styles.callerIdEmptyMessage}>
@@ -340,23 +337,6 @@ export default function NewCallScreen() {
                 thumbColor={enableRecording ? colors.primary[500] : colors.gray[400]}
               />
             </View>
-          </Card>
-
-          {/* Debug Test Section */}
-          <Text style={styles.sectionTitle}>Debug</Text>
-          <Card style={styles.optionsCard} variant="outlined" padding="md">
-            <Text style={styles.optionLabel}>Voice SDK: {isVoiceSupported ? '✓ Loaded' : '✗ Not Available'}</Text>
-            <TouchableOpacity
-              style={styles.testButton}
-              onPress={handleTestSetup}
-            >
-              <Text style={styles.testButtonText}>Run Setup Test</Text>
-            </TouchableOpacity>
-            {testResult && (
-              <Text style={[styles.testResult, testResult.includes('FAIL') ? styles.testFail : styles.testPass]}>
-                {testResult}
-              </Text>
-            )}
           </Card>
 
           {callError && (
@@ -676,31 +656,5 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     paddingHorizontal: spacing.lg,
     lineHeight: 20,
-  },
-  testButton: {
-    backgroundColor: colors.gray[200],
-    padding: spacing.sm,
-    borderRadius: borderRadius.md,
-    marginTop: spacing.sm,
-    alignItems: 'center',
-  },
-  testButtonText: {
-    color: colors.gray[700],
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
-  },
-  testResult: {
-    fontSize: typography.fontSize.xs,
-    marginTop: spacing.sm,
-    padding: spacing.sm,
-    borderRadius: borderRadius.sm,
-  },
-  testPass: {
-    backgroundColor: '#d4edda',
-    color: '#155724',
-  },
-  testFail: {
-    backgroundColor: '#f8d7da',
-    color: '#721c24',
   },
 });

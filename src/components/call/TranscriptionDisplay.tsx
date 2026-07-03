@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Animated } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, borderRadius } from '../../theme/spacing';
@@ -105,7 +106,7 @@ function TranscriptBubble({
           isRep ? styles.repTranslationBubble : styles.customerTranslationBubble,
         ]}>
           <View style={styles.translationHeader}>
-            <Text style={styles.globeIcon}>🌐</Text>
+            <Ionicons name="language" size={11} color={colors.primary[600]} style={styles.globeIcon} />
             <Text style={styles.translatedLabel}>TRANSLATED</Text>
           </View>
           <Text style={styles.translationText}>
@@ -139,7 +140,7 @@ export function TranscriptionDisplay({
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconContainer}>
-          <Text style={styles.emptyIcon}>💬</Text>
+          <Ionicons name="chatbubbles-outline" size={30} color={colors.primary[500]} />
         </View>
         <Text style={styles.emptyTitle}>Live Transcription</Text>
         <Text style={styles.emptyText}>

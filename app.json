@@ -17,9 +17,16 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.talktool.app",
       "infoPlist": {
-        "UIBackgroundModes": ["audio", "voip", "remote-notification"],
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "remote-notification"
+        ],
         "NSMicrophoneUsageDescription": "TalkTool needs microphone access for translated phone calls",
-        "BGTaskSchedulerPermittedIdentifiers": ["com.talktool.app.refresh"]
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "com.talktool.app.refresh"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -61,8 +68,15 @@
         "origin": false
       },
       "eas": {
-        "projectId": "your-project-id"
+        "projectId": "8ccb23f4-47a1-4aeb-b84d-c19eea61351e"
       }
+    },
+    "owner": "mq1989",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8ccb23f4-47a1-4aeb-b84d-c19eea61351e"
     }
   }
 }

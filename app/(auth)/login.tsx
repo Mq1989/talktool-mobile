@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useOAuth } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
+import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/hooks/useAuth';
 
@@ -88,7 +89,9 @@ export default function LoginScreen() {
   const handleGoogleSignIn = async () => {
     try {
       setLoginError(null);
-      const { createdSessionId, setActive } = await startGoogleOAuth();
+      const { createdSessionId, setActive } = await startGoogleOAuth({
+        redirectUrl: Linking.createURL('/oauth-native-callback'),
+      });
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
       }
@@ -101,7 +104,9 @@ export default function LoginScreen() {
   const handleAppleSignIn = async () => {
     try {
       setLoginError(null);
-      const { createdSessionId, setActive } = await startAppleOAuth();
+      const { createdSessionId, setActive } = await startAppleOAuth({
+        redirectUrl: Linking.createURL('/oauth-native-callback'),
+      });
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
       }
@@ -126,11 +131,7 @@ export default function LoginScreen() {
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <View style={styles.logoIcon}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  <Text style={{ fontSize: 20 }}>🇺🇸</Text>
-                  <Text style={{ fontSize: 12, color: '#fff' }}>⇄</Text>
-                  <Text style={{ fontSize: 20 }}>🇪🇸</Text>
-                </View>
+                <Ionicons name="language" size={32} color="#fff" />
               </View>
             </View>
             <Text style={styles.logoText}>TalkTool</Text>

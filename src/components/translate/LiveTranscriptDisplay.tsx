@@ -6,6 +6,7 @@ import {
   ScrollView,
   Animated,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, borderRadius } from '../../theme/spacing';
@@ -135,7 +136,7 @@ export function LiveTranscriptDisplay({
     return (
       <View style={styles.emptyContainer}>
         <View style={styles.emptyIconContainer}>
-          <Text style={styles.emptyIcon}>💬</Text>
+          <Ionicons name="mic-outline" size={30} color={colors.primary[500]} />
         </View>
         <Text style={styles.emptyTitle}>Ready to translate</Text>
         <Text style={styles.emptyDescription}>
@@ -151,7 +152,7 @@ export function LiveTranscriptDisplay({
             </Text>
             <Text style={styles.languageHintText}>Person A</Text>
           </View>
-          <Text style={styles.languageHintArrow}>⇄</Text>
+          <Ionicons name="swap-horizontal" size={16} color={colors.gray[400]} style={styles.languageHintArrow} />
           <View style={styles.languageHintItem}>
             <Text style={styles.languageHintFlag}>
               {languages[languageB]?.flag}

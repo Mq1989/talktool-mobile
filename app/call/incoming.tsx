@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Vibration } from 'react-native';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useVoice } from '../../src/contexts/VoiceContext';
@@ -95,21 +96,27 @@ export default function IncomingCallScreen() {
         </View>
 
         <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.rejectButton]}
-            onPress={handleReject}
-          >
-            <Text style={styles.actionIcon}>✕</Text>
+          <View style={styles.actionSlot}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.rejectButton]}
+              onPress={handleReject}
+              activeOpacity={0.85}
+            >
+              <MaterialIcons name="call-end" size={32} color="#fff" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Decline</Text>
-          </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity
-            style={[styles.actionButton, styles.acceptButton]}
-            onPress={handleAccept}
-          >
-            <Text style={styles.actionIcon}>✓</Text>
+          <View style={styles.actionSlot}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.acceptButton]}
+              onPress={handleAccept}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="call" size={30} color="#fff" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Accept</Text>
-          </TouchableOpacity>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -192,10 +199,13 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: spacing.xl,
   },
+  actionSlot: {
+    alignItems: 'center',
+  },
   actionButton: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -205,14 +215,9 @@ const styles = StyleSheet.create({
   acceptButton: {
     backgroundColor: colors.success,
   },
-  actionIcon: {
-    fontSize: 32,
-    color: '#fff',
-    fontWeight: typography.fontWeight.bold,
-  },
   actionText: {
     fontSize: typography.fontSize.sm,
-    color: '#fff',
-    marginTop: spacing.xs,
+    color: colors.gray[400],
+    marginTop: spacing.sm,
   },
 });

@@ -60,7 +60,12 @@ interface UseDisplaySocketReturn {
   isJoined: boolean;
   error: string | null;
   translationState: TranslationState | null;
+  mode: 'translator' | 'interpreter' | null;
+  cleanup: boolean | null;
   toggleTranslation: (enabled: boolean) => void;
+  sendSetMode: (value: 'translator' | 'interpreter') => void;
+  sendSetCleanup: (value: boolean) => void;
+  sendSetTiming: (value: Record<string, unknown>) => void;
   reconnect: () => void;
 }
 
@@ -84,6 +89,8 @@ export function useDisplaySocket({
   const [isJoined, setIsJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [translationState, setTranslationState] = useState<TranslationState | null>(null);
+  const [mode, setMode] = useState<'translator' | 'interpreter' | null>(null);
+  const [cleanup, setCleanup] = useState<boolean | null>(null);
 
   // Callback refs to avoid stale closures in WebSocket handlers
   const onTranscriptRef = useRef(onTranscript);
@@ -134,6 +141,24 @@ export function useDisplaySocket({
     }
   }, [callSid]);
 
+  const sendSetMode = useCallback((value: 'translator' | 'interpreter') => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set-mode', value }));
+    }
+  }, []);
+
+  const sendSetCleanup = useCallback((value: boolean) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set-cleanup', value }));
+    }
+  }, []);
+
+  const sendSetTiming = useCallback((value: Record<string, unknown>) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'set-timing', value }));
+    }
+  }, []);
+
   const connect = useCallback(() => {
     console.log('[DisplaySocket] connect() called with callSid:', callSid);
     console.log('[DisplaySocket] WS_BASE_URL:', WS_BASE_URL);
@@ -147,8 +172,8 @@ export function useDisplaySocket({
     disconnect();
 
     try {
-      // Connect to /call/display/{callSid} endpoint
-      const wsUrl = `${WS_BASE_URL}/call/display/${callSid}`;
+      // Backend (livekit-server.js) expects callSid as a query param.
+      const wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(callSid)}`;
       console.log('[DisplaySocket] Connecting to:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
@@ -195,17 +220,25 @@ export function useDisplaySocket({
               onConnectedRef.current?.();
               break;
 
-            // 2. Sync current translation state
+            // 2. Sync current translation state (also carries mode + cleanup)
             case 'translation-state-sync':
+            case 'call-initiated': {
               const state: TranslationState = {
-                isTranslating: data.isTranslating,
-                srcLang: data.srcLang,
-                dstLang: data.dstLang,
+                isTranslating: data.isTranslating !== false,
+                srcLang: data.srcLang || translationStateRef.current?.srcLang || '',
+                dstLang: data.dstLang || translationStateRef.current?.dstLang || '',
               };
-              console.log('[DisplaySocket] Translation state:', state);
+              console.log('[DisplaySocket]', data.type, '→ state:', state, 'mode:', data.mode);
               setTranslationState(state);
               onTranslationStateChangeRef.current?.(state);
+              if (data.mode === 'translator' || data.mode === 'interpreter') {
+                setMode(data.mode);
+              }
+              if (typeof data.cleanup === 'boolean') {
+                setCleanup(data.cleanup);
+              }
               break;
+            }
 
             // 3. Real-time transcript with translation
             case 'transcript':
@@ -235,9 +268,13 @@ export function useDisplaySocket({
             // 4. Confirms translation state changed
             case 'toggle-translation.ack':
               console.log('[DisplaySocket] Translation toggled:', data.isTranslating);
-              setTranslationState(prev => prev ? { ...prev, isTranslating: data.isTranslating } : null);
+              setTranslationState(prev => ({
+                isTranslating: Boolean(data.isTranslating),
+                srcLang: prev?.srcLang || '',
+                dstLang: prev?.dstLang || '',
+              }));
               onTranslationStateChangeRef.current?.({
-                isTranslating: data.isTranslating,
+                isTranslating: Boolean(data.isTranslating),
                 srcLang: translationStateRef.current?.srcLang || '',
                 dstLang: translationStateRef.current?.dstLang || '',
               });
@@ -262,6 +299,21 @@ export function useDisplaySocket({
             // 7. Call answered by remote party
             case 'call-answered':
               console.log('[DisplaySocket] Call answered:', data.callSid);
+              if (data.srcLang || data.dstLang) {
+                const answeredState: TranslationState = {
+                  isTranslating: Boolean(data.isTranslating),
+                  srcLang: data.srcLang || translationStateRef.current?.srcLang || '',
+                  dstLang: data.dstLang || translationStateRef.current?.dstLang || '',
+                };
+                setTranslationState(answeredState);
+                onTranslationStateChangeRef.current?.(answeredState);
+              }
+              if (data.mode === 'translator' || data.mode === 'interpreter') {
+                setMode(data.mode);
+              }
+              if (typeof data.cleanup === 'boolean') {
+                setCleanup(data.cleanup);
+              }
               onCallAnsweredRef.current?.();
               break;
 
@@ -269,6 +321,20 @@ export function useDisplaySocket({
             case 'call-ringing':
               console.log('[DisplaySocket] Call ringing:', data.callSid);
               onCallRingingRef.current?.();
+              break;
+
+            // 9. Mode change confirmation
+            case 'mode-state.ack':
+              if (data.mode === 'translator' || data.mode === 'interpreter') {
+                setMode(data.mode);
+              }
+              break;
+
+            // 10. Cleanup-toggle confirmation
+            case 'cleanup-state.ack':
+              if (typeof data.cleanup === 'boolean') {
+                setCleanup(data.cleanup);
+              }
               break;
 
             case 'error':
@@ -357,7 +423,12 @@ export function useDisplaySocket({
     isJoined,
     error,
     translationState,
+    mode,
+    cleanup,
     toggleTranslation,
+    sendSetMode,
+    sendSetCleanup,
+    sendSetTiming,
     reconnect,
   };
 }

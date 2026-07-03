@@ -8,6 +8,7 @@ import {
   ViewStyle,
   TouchableOpacity,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { typography } from '../../theme/typography';
 import { spacing, borderRadius } from '../../theme/spacing';
@@ -59,10 +60,13 @@ export function Input({
           <TouchableOpacity
             style={styles.rightIcon}
             onPress={() => setShowPassword(!showPassword)}
+            hitSlop={8}
           >
-            <Text style={styles.showHideText}>
-              {showPassword ? 'Hide' : 'Show'}
-            </Text>
+            <Ionicons
+              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+              size={20}
+              color={colors.gray[400]}
+            />
           </TouchableOpacity>
         )}
         {rightIcon && !isPassword && (
@@ -88,9 +92,9 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.gray[300],
-    borderRadius: borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: colors.gray[200],
+    borderRadius: borderRadius.lg,
     backgroundColor: colors.gray[50],
   },
   inputContainerFocused: {
@@ -102,7 +106,7 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    paddingVertical: spacing.sm + 2,
+    paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     fontSize: typography.fontSize.base,
     color: colors.gray[900],
@@ -115,11 +119,6 @@ const styles = StyleSheet.create({
   },
   rightIcon: {
     paddingRight: spacing.md,
-  },
-  showHideText: {
-    color: colors.primary[500],
-    fontSize: typography.fontSize.sm,
-    fontWeight: typography.fontWeight.medium,
   },
   error: {
     fontSize: typography.fontSize.sm,

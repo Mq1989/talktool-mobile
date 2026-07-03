@@ -7,6 +7,9 @@ import { tokenCache } from '../src/utils/tokenCache';
 import { CLERK_PUBLISHABLE_KEY } from '../src/utils/constants';
 import { VoiceProvider } from '../src/contexts/VoiceContext';
 
+// Note: LiveKit registerGlobals() runs in /index.js before expo-router boots,
+// so app/_layout.tsx doesn't need to call it.
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

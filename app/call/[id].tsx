@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LoadingSpinner } from '../../src/components/ui';
@@ -55,6 +56,7 @@ export default function ActiveCallScreen() {
     toggleSpeaker,
     isMuted: voiceMuted,
     endCallFromServer,
+    setMode: voiceSetMode,
   } = useVoice();
 
   const { endCall, isEndingCall } = useCalls();
@@ -102,14 +104,24 @@ export default function ActiveCallScreen() {
     error: wsError,
     translationState,
     toggleTranslation,
+    mode,
+    sendSetMode,
   } = useDisplaySocket({
-    callSid: id ?? callSid,
+    // Drop the socket the instant the call ends so we stop receiving
+    // transcripts from a customer leg that may still be alive backend-side.
+    callSid: callEnded ? null : (id ?? callSid),
     onTranscript: handleTranscript,
     onCallEnd: handleCallEnd,
     onCallAnswered: handleCallAnswered,
     onTranslationStateChange: handleTranslationStateChange,
     onError: handleSocketError,
   });
+
+  // Keep the LiveKit audio mix in sync with the backend-reported mode:
+  // interpreter = customer raw mic audible, translator = silent.
+  useEffect(() => {
+    if (mode) voiceSetMode(mode);
+  }, [mode, voiceSetMode]);
 
   // Track socket connection state
   useEffect(() => {
@@ -204,6 +216,12 @@ export default function ActiveCallScreen() {
     }
   };
 
+  const handleModeSwitch = (next: 'translator' | 'interpreter') => {
+    if (next === mode) return;
+    sendSetMode(next);   // tell the backend/agent
+    voiceSetMode(next);  // re-apply local audio mix immediately
+  };
+
   if (isLoading && !activeCall && callState === 'idle') {
     return <LoadingSpinner fullScreen message="Loading call..." />;
   }
@@ -261,19 +279,9 @@ export default function ActiveCallScreen() {
         {/* Language indicator */}
         <View style={styles.languageIndicator}>
           <Text style={styles.languageFlag}>{fromFlag}</Text>
-          <Text style={styles.languageArrow}>→</Text>
+          <Ionicons name="arrow-forward" size={13} color={colors.gray[400]} style={styles.languageArrow} />
           <Text style={styles.languageFlag}>{toFlag}</Text>
-          {displayTranscripts.length > 0 && (
-            <Text style={styles.messageCount}>{displayTranscripts.length} messages</Text>
-          )}
         </View>
-      </View>
-
-      {/* Debug: WebSocket Status Indicator */}
-      <View style={styles.debugContainer}>
-        <Text style={styles.debugText}>
-          WS: {isConnected ? '✅' : '❌'} Joined: {isJoined ? '✅' : '❌'} Msgs: {displayTranscripts.length}
-        </Text>
       </View>
 
       {/* Caller Info */}
@@ -303,7 +311,12 @@ export default function ActiveCallScreen() {
           ]}
           onPress={handleTranslationToggle}
         >
-          <Text style={styles.translationToggleIcon}>🌐</Text>
+          <Ionicons
+            name="language"
+            size={15}
+            color={translationState.isTranslating ? colors.primary[700] : colors.gray[500]}
+            style={styles.translationToggleIcon}
+          />
           <Text style={[
             styles.translationToggleText,
             translationState.isTranslating && styles.translationToggleTextActive,
@@ -311,6 +324,26 @@ export default function ActiveCallScreen() {
             {translationState.isTranslating ? 'Translation On' : 'Translation Off'}
           </Text>
         </TouchableOpacity>
+      )}
+
+      {/* Mode Switch: Translator / Interpreter */}
+      {displayStatus === 'active' && (
+        <View style={styles.modeSwitch}>
+          {(['translator', 'interpreter'] as const).map((m) => {
+            const active = (mode ?? 'translator') === m;
+            return (
+              <TouchableOpacity
+                key={m}
+                style={[styles.modeSegment, active && styles.modeSegmentActive]}
+                onPress={() => handleModeSwitch(m)}
+              >
+                <Text style={[styles.modeSegmentText, active && styles.modeSegmentTextActive]}>
+                  {m === 'translator' ? 'Translator' : 'Interpreter'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       )}
 
       {/* Transcription Display */}
@@ -419,26 +452,6 @@ const styles = StyleSheet.create({
   },
   languageArrow: {
     marginHorizontal: spacing.xs,
-    color: colors.gray[400],
-    fontSize: typography.fontSize.sm,
-  },
-  messageCount: {
-    marginLeft: spacing.md,
-    fontSize: typography.fontSize.sm,
-    color: colors.gray[500],
-  },
-
-  // Debug container
-  debugContainer: {
-    backgroundColor: colors.gray[100],
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  debugText: {
-    fontSize: typography.fontSize.xs,
-    color: colors.gray[600],
-    fontFamily: 'monospace',
-    textAlign: 'center',
   },
 
   // Caller Info
@@ -506,6 +519,33 @@ const styles = StyleSheet.create({
   },
   translationToggleTextActive: {
     color: colors.primary[700],
+  },
+
+  // Mode Switch (Translator / Interpreter)
+  modeSwitch: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    backgroundColor: colors.gray[100],
+    borderRadius: 20,
+    padding: 3,
+    marginBottom: spacing.sm,
+  },
+  modeSegment: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    borderRadius: 18,
+  },
+  modeSegmentActive: {
+    backgroundColor: colors.primary[500],
+  },
+  modeSegmentText: {
+    fontSize: typography.fontSize.sm,
+    color: colors.gray[600],
+    fontWeight: typography.fontWeight.medium,
+  },
+  modeSegmentTextActive: {
+    color: '#fff',
+    fontWeight: typography.fontWeight.semibold,
   },
 
   // Transcription Container

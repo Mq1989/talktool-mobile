@@ -199,11 +199,12 @@ export default function SettingsScreen() {
   const canUseAvailability = !!organization?.id && dedicatedNumbers.length > 0;
 
   // Initialize availability service with Clerk credentials
+  // Only initialize when BOTH userId AND orgId are available to prevent 400 errors
   useEffect(() => {
     const userId = clerkUser?.id;
     const orgId = organization?.id;
 
-    if (userId) {
+    if (userId && orgId) {
       availabilityService.init(userId, orgId);
     }
 

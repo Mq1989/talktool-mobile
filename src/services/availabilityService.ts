@@ -25,7 +25,7 @@ let state: AvailabilityState = {
 };
 
 const sendHeartbeat = async () => {
-  if (!state.isAvailable || state.activeNumbers.length === 0 || !state.userId) {
+  if (!state.isAvailable || state.activeNumbers.length === 0 || !state.userId || !state.orgId) {
     return;
   }
 
@@ -121,8 +121,8 @@ export const availabilityService = {
    * Uses multi-number API when multiple numbers provided
    */
   async setAvailable(numbers: string[]) {
-    if (!state.userId) {
-      console.error('[availabilityService] Cannot set available - missing userId');
+    if (!state.userId || !state.orgId) {
+      console.error('[availabilityService] Cannot set available - missing userId or orgId');
       return;
     }
 

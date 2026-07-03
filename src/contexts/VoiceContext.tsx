@@ -1,23 +1,31 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { useAuth, useUser } from '@clerk/clerk-expo';
-import { API_BASE_URL, WS_BASE_URL } from '../utils/constants';
-import { getLocaleForLanguage, LanguageCode } from '../utils/languages';
+import { Room, RoomEvent, Track, RemoteTrack, RemoteTrackPublication, RemoteParticipant } from 'livekit-client';
+import { API_BASE_URL } from '../utils/constants';
+import { getLocaleForLanguage } from '../utils/languages';
+import { livekitService } from '../services/livekitService';
 
-// Conditionally import Twilio Voice SDK (not available in Expo Go)
+// Twilio Voice SDK is being phased out in favor of a LiveKit-based incoming
+// flow (plan Phase 2). The native iOS bridge tries to register for PushKit at
+// `new Voice()` time, which fails until APNs is reconfigured for the new
+// com.talktool.app bundle ID at Twilio. Until Phase 2 lands, we keep the
+// require() (so the bundle still resolves) but never instantiate Voice — that
+// silences the "Failed to register for incoming calls" and PushKit errors.
+const INCOMING_VIA_TWILIO = false;
+
 let Voice: any = null;
 let Call: any = null;
-let CallInvite: any = null;
 
-try {
-  const TwilioVoice = require('@twilio/voice-react-native-sdk');
-  Voice = TwilioVoice.Voice;
-  Call = TwilioVoice.Call;
-  CallInvite = TwilioVoice.CallInvite;
-} catch (e) {
-  console.warn('Twilio Voice SDK not available - running in Expo Go?');
+if (INCOMING_VIA_TWILIO) {
+  try {
+    const TwilioVoice = require('@twilio/voice-react-native-sdk');
+    Voice = TwilioVoice.Voice;
+    Call = TwilioVoice.Call;
+  } catch (e) {
+    console.warn('Twilio Voice SDK not available - running in Expo Go?');
+  }
 }
 
 export type CallState = 'idle' | 'incoming' | 'connecting' | 'dialing' | 'ringing' | 'call-ringing' | 'active' | 'reconnecting' | 'ended';
@@ -50,18 +58,19 @@ interface OutboundCallParams {
   fromNumber: string;
   fromLanguage: string;
   toLanguage: string;
-  // Optional enhanced parameters for /iosCall endpoint
   initialMessage?: string;
   initialMessageOriginal?: string;
   translateInitially?: boolean;
   orgId?: string;
+  mode?: 'translator' | 'interpreter';
+  cleanup?: boolean;
+  shouldRecord?: boolean;
 }
 
 interface VoiceContextType {
-  // State
   callState: CallState;
-  activeCall: any | null;  // Call type from SDK
-  incomingCallInvite: any | null;  // CallInvite type from SDK
+  activeCall: any | null;
+  incomingCallInvite: any | null;
   isMuted: boolean;
   isSpeakerOn: boolean;
   callSid: string | null;
@@ -72,9 +81,11 @@ interface VoiceContextType {
   transcripts: TranscriptMessage[];
   error: string | null;
   isRegistered: boolean;
-  isVoiceSupported: boolean;  // Whether Voice SDK is available
+  isVoiceSupported: boolean;
+  room: Room | null;
+  mode: 'translator' | 'interpreter';
+  cleanup: boolean;
 
-  // Actions
   makeCall: (params: OutboundCallParams) => Promise<void>;
   acceptIncomingCall: () => Promise<void>;
   rejectIncomingCall: () => Promise<void>;
@@ -87,6 +98,8 @@ interface VoiceContextType {
   clearTranscripts: () => void;
   clearError: () => void;
   toggleTranslation: (turnOn: boolean) => void;
+  setMode: (value: 'translator' | 'interpreter') => void;
+  setCleanup: (value: boolean) => void;
   configureIntroduction: (message: string, customerLang: string, repLang: string) => Promise<{ translatedMessage: string; introductionId: string } | null>;
   testVoiceSetup: () => Promise<{ success: boolean; message: string }>;
   endCallFromServer: () => void;
@@ -98,22 +111,25 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const { getToken, isSignedIn, userId } = useAuth();
   const { user } = useUser();
 
-  // Check if Voice SDK is available
-  const isVoiceSupported = Voice !== null && Platform.OS !== 'web';
+  const isVoiceSupported = (Voice !== null || true) && Platform.OS !== 'web';
 
-  // Voice SDK instance
+  // LiveKit room (outbound)
+  const roomRef = useRef<Room | null>(null);
+  const repIdentityRef = useRef<string | null>(null);
+  const roomNameRef = useRef<string | null>(null);
+  // Audio tracks the rep can hear in interpreter mode but must be silent in
+  // translator mode (the customer's raw mic). Also the ducking targets when
+  // the agent speaks the rep's translation.
+  const duckableTracksRef = useRef<Set<RemoteTrack>>(new Set());
+  // modeRef mirrors `mode` for use inside non-reactive event callbacks.
+  const modeRef = useRef<'translator' | 'interpreter'>('translator');
+
+  // Twilio SDK (incoming-only, deprecated path pending backend Phase 2)
   const voiceRef = useRef<any | null>(null);
   const parentCallSidRef = useRef<string | null>(null);
   const ringSoundRef = useRef<Audio.Sound | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const shouldReconnectRef = useRef(true);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const callStateRef = useRef<CallState>('idle');
-  const wsInstanceRef = useRef<string | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const isRegisteringRef = useRef(false);
 
-  // State
   const [callState, setCallState] = useState<CallState>('idle');
   const [activeCall, setActiveCall] = useState<any | null>(null);
   const [incomingCallInvite, setIncomingCallInvite] = useState<any | null>(null);
@@ -123,68 +139,36 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [callInfo, setCallInfo] = useState<CallInfo | null>(null);
   const [callLanguages, setCallLanguages] = useState<CallLanguages | null>(null);
   const [callStartTime, setCallStartTime] = useState<number | null>(null);
-  const [isTranslating, setIsTranslating] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(true);
   const [transcripts, setTranscripts] = useState<TranscriptMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
+  const [room, setRoom] = useState<Room | null>(null);
+  const [mode, setModeState] = useState<'translator' | 'interpreter'>('translator');
+  const [cleanup, setCleanupState] = useState<boolean>(false);
 
-  // Keep ref in sync for use in closures
+  // ---------- Twilio incoming-only init ----------
   useEffect(() => {
-    callStateRef.current = callState;
-  }, [callState]);
-
-  // Restore instanceId from AsyncStorage on mount
-  useEffect(() => {
-    AsyncStorage.getItem('device-ws-instance').then((storedId) => {
-      if (storedId) {
-        wsInstanceRef.current = storedId;
-      }
-    });
-  }, []);
-
-  // Clear instanceId when call ends
-  useEffect(() => {
-    if (callState === 'ended' || callState === 'idle') {
-      wsInstanceRef.current = null;
-      AsyncStorage.removeItem('device-ws-instance');
-    }
-  }, [callState]);
-
-  // Initialize Voice SDK
-  useEffect(() => {
-    if (!isVoiceSupported) {
-      console.log('Voice SDK not available (Expo Go or web)');
-      return;
-    }
+    if (!Voice || Platform.OS === 'web') return;
 
     const initVoice = async () => {
       try {
         const voice = new Voice();
         voiceRef.current = voice;
 
-        // Register event handlers
         voice.on(Voice.Event.CallInvite, handleIncomingCall);
         voice.on(Voice.Event.CancelledCallInvite, handleCancelledInvite);
-        voice.on(Voice.Event.Registered, () => {
-          console.log('Voice SDK registered for incoming calls');
-          setIsRegistered(true);
-        });
-        voice.on(Voice.Event.Unregistered, () => {
-          console.log('Voice SDK unregistered');
-          setIsRegistered(false);
-        });
+        voice.on(Voice.Event.Registered, () => setIsRegistered(true));
+        voice.on(Voice.Event.Unregistered, () => setIsRegistered(false));
         voice.on(Voice.Event.Error, (err: any) => {
           console.error('Voice SDK error:', err);
-          setError(err.message || 'Voice SDK error');
         });
 
-        // Register for incoming calls if signed in
         if (isSignedIn) {
           await registerForIncomingCalls();
         }
       } catch (err) {
         console.error('Failed to initialize Voice SDK:', err);
-        setError('Failed to initialize voice service');
       }
     };
 
@@ -195,12 +179,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         voiceRef.current.removeAllListeners();
       }
     };
-  }, [isVoiceSupported]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Handle app state changes
   useEffect(() => {
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
 
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
@@ -209,85 +194,51 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Register for incoming calls
   const registerForIncomingCalls = async () => {
     if (!voiceRef.current || !isSignedIn) return;
+    if (isRegisteringRef.current) return;
+    isRegisteringRef.current = true;
 
     try {
       const token = await getToken();
-      if (!token) {
-        console.warn('No auth token available for voice registration');
-        return;
-      }
+      if (!token) return;
 
-      // Get Twilio access token from Next.js backend
       const response = await fetch(`${API_BASE_URL}/accessToken`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ identity: 'mobile_user', platform: Platform.OS }),
+        body: JSON.stringify({ identity: userId || 'mobile_user', platform: Platform.OS }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to get access token');
-      }
-
+      if (!response.ok) return;
       const data = await response.json();
       const twilioToken = data.token || data.accessToken;
-
       if (twilioToken) {
         await voiceRef.current.register(twilioToken);
       }
     } catch (err) {
       console.error('Failed to register for incoming calls:', err);
+    } finally {
+      isRegisteringRef.current = false;
     }
   };
 
-  // Re-register when sign-in state changes
   useEffect(() => {
-    if (isSignedIn) {
-      registerForIncomingCalls();
-    }
+    if (isSignedIn) registerForIncomingCalls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
 
-  // Periodic token refresh every 10 minutes when registered
+  // Periodic Twilio re-register (incoming-only path; cheap; safe to leave)
   useEffect(() => {
     if (!isRegistered) return;
-
-    const interval = setInterval(async () => {
-      try {
-        const authToken = await getToken();
-        if (!authToken || !voiceRef.current) return;
-
-        const response = await fetch(`${API_BASE_URL}/accessToken`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({ identity: userId || 'mobile_user', platform: Platform.OS }),
-        });
-
-        if (!response.ok) return;
-
-        const data = await response.json();
-        const twilioToken = data.token || data.accessToken;
-
-        if (twilioToken) {
-          await voiceRef.current.register(twilioToken);
-          console.log('[VoiceContext] Token refreshed and re-registered');
-        }
-      } catch (err) {
-        console.error('[VoiceContext] Token refresh failed:', err);
-      }
-    }, 10 * 60 * 1000); // 10 minutes
-
+    const interval = setInterval(() => { registerForIncomingCalls(); }, 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [isRegistered, getToken, userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRegistered]);
 
-  // Ring sound helpers
+  // ---------- Ring sound for incoming ----------
   const playIncomingRing = async () => {
     try {
       await Audio.setAudioModeAsync({
@@ -295,13 +246,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         playsInSilentModeIOS: true,
         staysActiveInBackground: true,
       });
-      // Use bundled ringtone asset
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const ringtoneAsset = require('../../assets/ringtone.mp3');
-      const { sound } = await Audio.Sound.createAsync(
-        ringtoneAsset,
-        { isLooping: true, volume: 1.0 }
-      );
+      const { sound } = await Audio.Sound.createAsync(ringtoneAsset, { isLooping: true, volume: 1.0 });
       ringSoundRef.current = sound;
       await sound.playAsync();
     } catch (err) {
@@ -322,34 +269,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleIncomingCall = (callInvite: any) => {
-    console.log('[VoiceContext] Incoming call invite received');
-
-    // Extract custom parameters from the call invite
     const customParams = callInvite.getCustomParameters?.() || callInvite.customParameters || {};
-    const parentCallSid = customParams.parentCallSid;
-    const srcLang = customParams.srcLang;
-    const dstLang = customParams.dstLang;
-    const incomingNumber = customParams.incomingNumber;
-    const isTranslatingParam = customParams.isTranslating;
-
-    console.log('[VoiceContext] Custom params:', { parentCallSid, srcLang, dstLang, incomingNumber, isTranslatingParam });
-
-    // Store parentCallSid (critical - this is the session key on the backend)
-    parentCallSidRef.current = parentCallSid || null;
-
-    // Set languages
-    setCallLanguages({ srcLang: srcLang || 'en-US', dstLang: dstLang || 'en-US' });
-
-    // Set incoming state
+    parentCallSidRef.current = customParams.parentCallSid || null;
+    setCallLanguages({
+      srcLang: customParams.srcLang || 'en-US',
+      dstLang: customParams.dstLang || 'en-US',
+    });
     setIncomingCallInvite(callInvite);
     setCallState('incoming');
-
-    // Play incoming ring sound
     playIncomingRing();
   };
 
-  const handleCancelledInvite = (_callInvite: any) => {
-    console.log('[VoiceContext] Call invite cancelled');
+  const handleCancelledInvite = () => {
     stopIncomingRing();
     setIncomingCallInvite(null);
     setCallState('idle');
@@ -362,14 +293,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     repLang?: string;
     customerLang?: string;
   }) => {
-    console.log('[VoiceContext] createCallRecord called with:', effectiveCallSid);
     try {
       const authToken = await getToken();
-      if (!authToken) {
-        console.error('[VoiceContext] createCallRecord: No auth token available');
-        return;
-      }
-      console.log('[VoiceContext] createCallRecord: Making POST to', `${API_BASE_URL}/call`);
+      if (!authToken) return;
 
       const requestBody = {
         callSid: effectiveCallSid,
@@ -379,7 +305,6 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
         repLang: overrides?.repLang ?? callLanguages?.srcLang ?? 'en-US',
         customerLang: overrides?.customerLang ?? callLanguages?.dstLang ?? 'en-US',
       };
-      console.log('[VoiceContext] createCallRecord: Request body:', JSON.stringify(requestBody));
 
       const response = await fetch(`${API_BASE_URL}/call`, {
         method: 'POST',
@@ -392,524 +317,193 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('[VoiceContext] createCallRecord failed - API returned:', response.status, errorData);
-        return;
+        console.error('[VoiceContext] createCallRecord failed:', response.status, errorData);
       }
-
-      console.log('[VoiceContext] Call record created successfully for:', effectiveCallSid);
     } catch (err) {
       console.error('[VoiceContext] createCallRecord exception:', err);
     }
   };
 
-  const disconnectWebSocket = () => {
-    console.log('[VoiceContext] disconnectWebSocket called');
-    // Prevent auto-reconnect
-    shouldReconnectRef.current = false;
-    // Cancel any pending reconnect timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    if (heartbeatIntervalRef.current) {
-      clearInterval(heartbeatIntervalRef.current);
-      heartbeatIntervalRef.current = null;
-    }
-    if (wsRef.current) {
-      console.log('[VoiceContext] Closing WebSocket, readyState:', wsRef.current.readyState);
-      wsRef.current.close(1000, 'intentional-close');
-      wsRef.current = null;
-    }
-  };
+  // ---------- LiveKit room helpers ----------
+  // Unlike the web (where not calling track.attach() = silence), LiveKit RN
+  // auto-plays EVERY subscribed audio track. So we must explicitly unsubscribe
+  // or zero the volume of tracks the rep should not hear, or the call sounds
+  // like interpreter mode (echo of the rep's own translated voice + raw mic).
+  const attachRemoteTrack = (track: RemoteTrack, publication: RemoteTrackPublication, _participant: RemoteParticipant) => {
+    if (track.kind !== Track.Kind.Audio) return;
+    const trackName = publication.trackName || (track as any).name || track.sid || '';
 
-  const connectWebSocket = (sid: string) => {
-    console.log('[VoiceContext] connectWebSocket called with sid:', sid);
-    if (!sid) {
-      console.log('[VoiceContext] connectWebSocket: sid is empty, aborting');
+    // tts-for-customer is the rep's own speech translated for the customer —
+    // it plays on the PSTN leg. The rep must NEVER hear it (echo). Unsubscribe.
+    if (trackName === 'tts-for-customer') {
+      console.log('[VoiceContext] Unsubscribing tts-for-customer (prevent echo)');
+      try { publication.setSubscribed(false); } catch (e) { console.warn('[VoiceContext] unsub failed:', e); }
       return;
     }
 
-    let wsUrl = `${WS_BASE_URL}/call/display?callSid=${encodeURIComponent(sid)}`;
-    if (wsInstanceRef.current) {
-      wsUrl += `&fly-force-instance-id=${encodeURIComponent(wsInstanceRef.current)}`;
-    }
-
-    // Duplicate connection prevention: if already connected/connecting to same URL, skip
-    if (wsRef.current &&
-        (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING) &&
-        (wsRef.current as any).__targetUrl === wsUrl) {
-      console.log('[VoiceContext] WebSocket already connected to target URL, skipping');
+    // tts-for-rep: the translation of the customer's speech. Always audible.
+    if (trackName === 'tts-for-rep') {
+      try { (track as any).setVolume?.(1); } catch {}
+      console.log('[VoiceContext] tts-for-rep attached');
       return;
     }
 
-    // Clean up existing connection
-    disconnectWebSocket();
-    shouldReconnectRef.current = true; // Allow reconnect for this new connection
-
-    console.log('[VoiceContext] Connecting WebSocket to URL:', wsUrl);
-    console.log('[VoiceContext] WS_BASE_URL:', WS_BASE_URL);
-    console.log('[VoiceContext] Current callState at connect time:', callState);
-
-    const socket = new WebSocket(wsUrl);
-    (socket as any).__targetUrl = wsUrl;
-
-    socket.onopen = () => {
-      console.log('[VoiceContext] WebSocket OPEN - readyState:', socket.readyState);
-      // Join the call room
-      const joinMsg = { type: 'call.join', callSid: sid };
-      console.log('[VoiceContext] Sending join message:', JSON.stringify(joinMsg));
-      socket.send(JSON.stringify(joinMsg));
-
-      // Start heartbeat ping every 25s
-      heartbeatIntervalRef.current = setInterval(() => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
-        }
-      }, 25000);
-    };
-
-    socket.onmessage = (event) => {
-      console.log('[VoiceContext] WebSocket RAW message received:', event.data);
-      try {
-        const msg = JSON.parse(event.data);
-        console.log('[VoiceContext] WebSocket parsed message - type:', msg.type, 'full:', JSON.stringify(msg));
-
-        // Store instance ID for reconnection affinity
-        if (msg.instanceId && msg.instanceId !== wsInstanceRef.current) {
-          wsInstanceRef.current = msg.instanceId;
-          AsyncStorage.setItem('device-ws-instance', msg.instanceId);
-        }
-
-        handleWsMessage(msg);
-      } catch (err) {
-        console.warn('[VoiceContext] Failed to parse WebSocket message:', err, 'raw:', event.data);
-      }
-    };
-
-    socket.onclose = (event) => {
-      console.log('[VoiceContext] WebSocket CLOSED - code:', event.code, 'reason:', event.reason);
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
-      // Only reconnect if: flag is true AND call is still active (using ref for current value)
-      const currentState = callStateRef.current;
-      if (shouldReconnectRef.current && event.code !== 1000 && event.code !== 1001 &&
-          (currentState === 'active' || currentState === 'call-ringing' || currentState === 'dialing')) {
-        console.log('[VoiceContext] WebSocket closed unexpectedly during active call, reconnecting in 1.5s...');
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectTimeoutRef.current = null;
-          connectWebSocket(sid);
-        }, 1500);
-      } else {
-        console.log('[VoiceContext] WebSocket closed, NOT reconnecting (shouldReconnect:', shouldReconnectRef.current, 'state:', currentState, ')');
-      }
-    };
-
-    socket.onerror = (err: any) => {
-      console.error('[VoiceContext] WebSocket ERROR:', JSON.stringify(err));
-      console.error('[VoiceContext] WebSocket error - socket readyState:', socket.readyState);
-    };
-
-    wsRef.current = socket;
+    // Any other audio (the customer's raw mic). Audible only in interpreter
+    // mode; silent in translator mode. Track it so ducking + mode flips can
+    // re-apply volume without re-querying the room.
+    duckableTracksRef.current.add(track);
+    const vol = modeRef.current === 'interpreter' ? 1 : 0;
+    try { (track as any).setVolume?.(vol); } catch {}
+    console.log('[VoiceContext] raw audio track volume set to', vol, '(mode:', modeRef.current, ')');
   };
 
-  const handleWsMessage = (msg: any) => {
-    console.log('[VoiceContext] handleWsMessage - type:', msg.type, 'current callState:', callState);
-    switch (msg.type) {
-      case 'transcript': {
-        const transcript: TranscriptMessage = {
-          id: `${msg.time || Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          callSid: msg.callSid || callSid || '',
-          speaker: msg.from === 'rep' ? 'user' : 'remote',
-          originalText: msg.original || '',
-          translatedText: msg.translation || '',
-          originalLanguage: msg.from === 'rep' ? (callLanguages?.srcLang || '') : (callLanguages?.dstLang || ''),
-          targetLanguage: msg.from === 'rep' ? (callLanguages?.dstLang || '') : (callLanguages?.srcLang || ''),
-          timestamp: new Date(msg.time || Date.now()),
-        };
-        setTranscripts(prev => [...prev, transcript]);
-        break;
-      }
-
-      case 'call-initiated':
-        console.log('[VoiceContext] WS: call-initiated');
-        setCallState('dialing');
-        break;
-
-      case 'call-ringing':
-        console.log('[VoiceContext] WS: call-ringing');
-        setCallState('call-ringing');
-        break;
-
-      case 'call-answered':
-        console.log('[VoiceContext] WS: call-answered', msg);
-        setCallState('active');
-        if (msg.srcLang || msg.dstLang) {
-          setCallLanguages({
-            srcLang: msg.srcLang || callLanguages?.srcLang || 'en-US',
-            dstLang: msg.dstLang || callLanguages?.dstLang || 'en-US',
-          });
-        }
-        if (msg.isTranslating !== undefined) {
-          setIsTranslating(Boolean(msg.isTranslating));
-        }
-        break;
-
-      case 'end-call':
-        console.log('[VoiceContext] WS: end-call', msg.reason);
-        shouldReconnectRef.current = false;
-        disconnectWebSocket();
-        AsyncStorage.removeItem('device-ws-instance');
-        wsInstanceRef.current = null;
-        setCallState('ended');
-        setCallSid(null);
-        break;
-
-      case 'toggle-translation.ack':
-        console.log('[VoiceContext] WS: toggle-translation.ack', msg.isTranslating);
-        setIsTranslating(Boolean(msg.isTranslating));
-        break;
-
-      case 'translation-state-sync':
-        console.log('[VoiceContext] WS: translation-state-sync', msg);
-        setIsTranslating(Boolean(msg.isTranslating));
-        if (msg.srcLang || msg.dstLang) {
-          setCallLanguages({
-            srcLang: msg.srcLang || callLanguages?.srcLang || 'en-US',
-            dstLang: msg.dstLang || callLanguages?.dstLang || 'en-US',
-          });
-        }
-        break;
-
-      case 'call.join.ack':
-        console.log('[VoiceContext] WS: Joined call room (reconnection successful)');
-        break;
-
-      case 'call-connecting-customer':
-        console.log('[VoiceContext] WS: call-connecting-customer');
-        break;
-
-      case 'control.applied':
-        console.log('[VoiceContext] WS: control.applied', msg);
-        break;
-
-      case 'answering-machine':
-        console.log('[VoiceContext] WS: answering-machine detected');
-        break;
-
-      case 'pong':
-        // Heartbeat response, no action needed
-        break;
-
-      default:
-        console.log('[VoiceContext] WS: Unknown message type:', msg.type);
+  // Apply a volume to every duckable (customer raw mic) track.
+  const applyDuckableVolume = (vol: number) => {
+    for (const track of duckableTracksRef.current) {
+      try { (track as any).setVolume?.(vol); } catch {}
     }
   };
 
-  // NOTE: VoiceContext WebSocket is disabled. The useDisplaySocket hook on the
-  // active call screen is the single display WebSocket connection. Having two
-  // display connections causes the server to close them with code 1012 in a loop.
+  // Agent → rep ducking. Payload: { type:"tts-state", recipient:"rep", active }
+  // Fade the customer's raw mic while the agent speaks the rep's translation.
+  const handleDataReceived = (payload: Uint8Array) => {
+    if (modeRef.current !== 'interpreter') return;
+    let msg: any;
+    try { msg = JSON.parse(new TextDecoder().decode(payload)); } catch { return; }
+    if (!msg || msg.type !== 'tts-state' || msg.recipient !== 'rep') return;
+    applyDuckableVolume(msg.active ? 0.15 : 1);
+  };
 
-  // NOTE: Foreground reconnect also disabled - DisplaySocket handles reconnection.
-
-  const setupCallEventListeners = (call: any, callParams?: {
-    from: string;
-    to: string;
-    direction?: 'inbound' | 'outbound';
-    repLang?: string;
-    customerLang?: string;
-  }) => {
-    if (!Call) {
-      console.warn('[VoiceContext] Call class not available, cannot set up event listeners');
-      return;
+  const teardownRoom = () => {
+    const r = roomRef.current;
+    if (r) {
+      try { r.disconnect(); } catch (e) { console.warn('[VoiceContext] room.disconnect failed:', e); }
     }
+    duckableTracksRef.current.clear();
+    roomRef.current = null;
+    repIdentityRef.current = null;
+    roomNameRef.current = null;
+    setRoom(null);
+  };
 
-    console.log('[VoiceContext] Setting up call event listeners');
-
-    // Call connected (equivalent to 'accept' event on web)
-    call.on(Call.Event.Connected, () => {
-      console.log('[VoiceContext] Event: Call connected');
-      setCallState('active');
-      setCallStartTime(Date.now());
-
-      // Get parentCallSid from custom parameters (sent by backend on outbound calls)
-      const customParams = call.getCustomParameters?.() || {};
-      const parentCallSid = customParams.parentCallSid || parentCallSidRef.current;
-      const effectiveCallSid = parentCallSid || call.getSid();
-
-      // Store parentCallSid for WebSocket and API calls
-      if (parentCallSid) {
-        parentCallSidRef.current = parentCallSid;
-      }
-
-      console.log('[VoiceContext] Effective callSid:', effectiveCallSid);
-      setCallSid(effectiveCallSid);
-      setCallInfo(prev => prev ? { ...prev, callSid: effectiveCallSid } : {
-        direction: callParams?.direction || 'outbound',
-        from: callParams?.from || '',
-        to: callParams?.to || '',
-        callSid: effectiveCallSid,
-      });
-
-      // Create call record on backend
-      createCallRecord(effectiveCallSid, callParams ? {
-        from: callParams.from,
-        to: callParams.to,
-        direction: callParams.direction,
-        repLang: callParams.repLang,
-        customerLang: callParams.customerLang,
-      } : undefined);
+  const wireRoomEvents = (r: Room) => {
+    r.on(RoomEvent.TrackSubscribed, attachRemoteTrack);
+    r.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      duckableTracksRef.current.delete(track);
     });
-
-    // Call ringing (remote party is being called)
-    call.on(Call.Event.Ringing, () => {
-      console.log('[VoiceContext] Event: Call ringing');
-      setCallState('call-ringing');
-      // Try to get SID at ringing time as belt-and-suspenders
-      const sid = call.getSid?.() || (call as any)._sid || null;
-      if (sid && !callSid) {
-        console.log('[VoiceContext] Got callSid at Ringing:', sid);
-        setCallSid(sid);
-      }
-    });
-
-    call.on(Call.Event.Reconnecting, () => {
-      console.log('[VoiceContext] Event: Call reconnecting');
-      setCallState('reconnecting');
-    });
-
-    call.on(Call.Event.Reconnected, () => {
-      console.log('[VoiceContext] Event: Call reconnected');
-      setCallState('active');
-    });
-
-    // Call disconnected
-    call.on(Call.Event.Disconnected, (err: any) => {
-      const sid = call.getSid?.();
-      console.log('[VoiceContext] Event: Call disconnected');
-      console.log('[VoiceContext] Disconnect - call getSid():', sid);
-      console.log('[VoiceContext] Disconnect - call getState():', call.getState?.());
-      console.log('[VoiceContext] Disconnect - current callState:', callStateRef.current);
-      if (err) {
-        console.log('[VoiceContext] Disconnect error:', JSON.stringify(err, null, 2));
-        console.log('[VoiceContext] Disconnect error code:', err.code);
-        console.log('[VoiceContext] Disconnect error message:', err.message);
-      } else {
-        console.log('[VoiceContext] Disconnect: No error object provided');
-      }
-
-      // If the SDK leg disconnected before Connected ever fired but the call
-      // has a SID, the call is still active server-side. Set callSid and
-      // transition to 'active' so the UI navigates and the display WebSocket
-      // can drive the call state from here.
-      if (!err && sid && callStateRef.current === 'dialing') {
-        console.log('[VoiceContext] SDK leg dropped during dialing but call has SID - treating as server-side active call');
-        setCallSid(sid);
-        setCallState('active');
-        setActiveCall(null);
-
-        // Create call record since Connected event won't fire
-        createCallRecord(sid, {
-          from: callParams?.from || '',
-          to: callParams?.to || '',
-          direction: callParams?.direction || 'outbound',
-          repLang: callParams?.repLang || 'en-US',
-          customerLang: callParams?.customerLang || 'en-US',
-        });
-
-        return;
-      }
-
-      disconnectWebSocket();
+    r.on(RoomEvent.DataReceived, handleDataReceived);
+    r.on(RoomEvent.Disconnected, (reason) => {
+      console.log('[VoiceContext] Room disconnected:', reason);
+      teardownRoom();
       setActiveCall(null);
       setCallState('ended');
       setCallSid(null);
       setIsMuted(false);
     });
-
-    // Connect failure
-    call.on(Call.Event.ConnectFailure, (err: any) => {
-      console.error('[VoiceContext] Event: Call connect failure:', err);
-      setError(err?.message || 'Failed to connect call');
-      disconnectWebSocket();
-      setCallState('idle');
-      setCallSid(null);
-      setActiveCall(null);
-    });
-
-    console.log('[VoiceContext] Call event listeners set up complete');
+    r.on(RoomEvent.Reconnecting, () => setCallState('reconnecting'));
+    r.on(RoomEvent.Reconnected, () => setCallState('active'));
   };
 
+  // ---------- Outbound dial via LiveKit ----------
   const makeCall = useCallback(async (params: OutboundCallParams) => {
-    console.log('[VoiceContext] makeCall called with:', {
-      toNumber: params.toNumber,
-      fromNumber: params.fromNumber,
-      fromLanguage: params.fromLanguage,
-      toLanguage: params.toLanguage,
-    });
-
-    if (!isVoiceSupported) {
-      console.error('[VoiceContext] Voice SDK not available');
-      setError('Voice calls require a development build. Run: npx expo run:ios');
-      return;
-    }
-
-    if (!voiceRef.current) {
-      console.error('[VoiceContext] Voice instance not initialized');
-      setError('Voice service not initialized');
+    if (Platform.OS === 'web') {
+      setError('Calls require a native build.');
       return;
     }
 
     try {
       setError(null);
-      clearTranscripts();
+      setTranscripts([]);
       setCallStartTime(null);
 
-      console.log('[VoiceContext] Getting Clerk auth token...');
-      const authToken = await getToken();
-      if (!authToken) {
-        console.error('[VoiceContext] No Clerk auth token available');
-        throw new Error('Not authenticated');
-      }
-      console.log('[VoiceContext] Clerk auth token obtained');
-
-      // Get Twilio access token from Next.js backend
-      console.log('[VoiceContext] Fetching Twilio access token from:', `${API_BASE_URL}/accessToken`);
-      const response = await fetch(`${API_BASE_URL}/accessToken`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          identity: userId || 'mobile_user',
-          platform: Platform.OS
-        }),
-      });
-
-      console.log('[VoiceContext] Access token response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[VoiceContext] Access token request failed:', errorData);
-        throw new Error(errorData.message || 'Failed to get access token');
-      }
-
-      const data = await response.json();
-      console.log('[VoiceContext] Access token response data keys:', Object.keys(data));
-      const twilioToken = data.token || data.accessToken || data.data?.token;
-
-      if (!twilioToken) {
-        console.error('[VoiceContext] No token found in response:', data);
-        throw new Error('No access token received from server');
-      }
-      console.log('[VoiceContext] Twilio access token obtained, length:', twilioToken.length);
-
-      // Decode JWT payload to inspect grants (for debugging)
-      try {
-        const parts = twilioToken.split('.');
-        if (parts.length === 3) {
-          const payload = JSON.parse(atob(parts[1]));
-          console.log('[VoiceContext] Token payload - sub:', payload.sub);
-          console.log('[VoiceContext] Token payload - grants:', JSON.stringify(payload.grants));
-          console.log('[VoiceContext] Token payload - iss:', payload.iss);
-          console.log('[VoiceContext] Token payload - exp:', new Date(payload.exp * 1000).toISOString());
-        }
-      } catch (decodeErr) {
-        console.log('[VoiceContext] Could not decode token payload');
-      }
-
-      // Configure audio session for VoIP before connecting
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-      });
-
-      console.log('[VoiceContext] makeCall: Setting callState to dialing');
-      setCallState('dialing');
-
-      // Convert language codes to locale codes for STT
       const repLang = getLocaleForLanguage(params.fromLanguage);
       const customerLang = getLocaleForLanguage(params.toLanguage);
 
-      // Build call params for /iosCall endpoint
-      // Server expects: CallSid (auto from SDK), To, callerId, repLang, customerLang,
-      // clerkUserId, orgId, translateInitially, initialMessage
-      const callParams = {
-        To: params.toNumber,
-        callerId: params.fromNumber,
-        repLang,
-        customerLang,
-        clerkUserId: userId || '',
-        orgId: params.orgId || '',
-        translateInitially: params.translateInitially !== false ? 'true' : 'false',
-        initialMessage: params.initialMessage || '',
-        initialMessageOriginal: params.initialMessageOriginal || '',
-      };
-
-      console.log('[VoiceContext] Making call with params:', callParams);
-      console.log('[VoiceContext] Calling voiceRef.current.connect()...');
-
-      // Make the outbound call with server-compatible parameter names
-      const call = await voiceRef.current.connect(twilioToken, {
-        params: callParams,
-      });
-
-      console.log('[VoiceContext] voiceRef.current.connect() returned, call:', call ? 'exists' : 'null');
-      if (call) {
-        console.log('[VoiceContext] Call object keys:', Object.keys(call));
-        console.log('[VoiceContext] Call getSid():', call.getSid?.());
-        console.log('[VoiceContext] Call getState():', call.getState?.());
-        console.log('[VoiceContext] Call getFrom():', call.getFrom?.());
-        console.log('[VoiceContext] Call getTo():', call.getTo?.());
-      }
-
-      setActiveCall(call);
-
-      // Set call info (will be updated with parentCallSid when Connected event fires)
+      setCallLanguages({ srcLang: repLang, dstLang: customerLang });
       setCallInfo({
         direction: 'outbound',
         from: params.fromNumber,
         to: params.toNumber,
         callSid: null,
       });
+      setCallState('dialing');
 
-      // Set up call event listeners
-      setupCallEventListeners(call, {
+      const placeBody = {
+        to: params.toNumber,
+        callerId: params.fromNumber,
+        repLang,
+        customerLang,
+        clerkUserId: userId || '',
+        orgId: params.orgId,
+        translateInitially: params.translateInitially !== false,
+        ttsOnly: true,
+        mode: params.mode || mode,
+        cleanup: params.cleanup ?? cleanup,
+        // Recording is a pre-call decision (set on the New Call screen).
+        // Backend defaults to true, so send the explicit choice every time.
+        shouldRecord: params.shouldRecord === true,
+        initialMessage: params.initialMessage || null,
+        callContext: '',
+      };
+
+      console.log('[VoiceContext] POST /livekit/place-call body:', placeBody);
+      const result = await livekitService.placeCall(placeBody);
+      console.log('[VoiceContext] /livekit/place-call response:', {
+        roomName: result.roomName,
+        callSid: result.callSid,
+        repIdentity: result.repIdentity,
+      });
+
+      repIdentityRef.current = result.repIdentity;
+      roomNameRef.current = result.roomName;
+      parentCallSidRef.current = result.callSid;
+
+      // Configure iOS audio session for VoIP-style playback + recording.
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
+      });
+
+      const r = new Room({ adaptiveStream: true, dynacast: true });
+      roomRef.current = r;
+      wireRoomEvents(r);
+
+      await r.connect(result.livekitUrl, result.token);
+      await r.localParticipant.setMicrophoneEnabled(true);
+
+      setRoom(r);
+      setCallSid(result.callSid);
+      setCallInfo(prev => prev ? { ...prev, callSid: result.callSid } : prev);
+      setCallStartTime(Date.now());
+      setIsTranslating(params.translateInitially !== false);
+      const initialMode = params.mode || mode;
+      setModeState(initialMode);
+      modeRef.current = initialMode;
+      setCleanupState(params.cleanup ?? cleanup);
+
+      // Display socket on the active call screen drives 'call-answered' →
+      // callState='active' transition. Until then we sit at 'dialing'.
+
+      // Persist a call record in the user's history.
+      createCallRecord(result.callSid, {
         from: params.fromNumber,
         to: params.toNumber,
         direction: 'outbound',
         repLang,
         customerLang,
       });
-
-      // Poll for callSid since getSid() returns null immediately after connect()
-      const sidPollInterval = setInterval(() => {
-        const sid = call.getSid?.() || (call as any)._sid || null;
-        console.log('[VoiceContext] Polling for callSid:', sid);
-        if (sid) {
-          console.log('[VoiceContext] Got callSid from polling:', sid);
-          setCallSid(sid);
-          setCallInfo(prev => prev ? { ...prev, callSid: sid } : prev);
-          clearInterval(sidPollInterval);
-        }
-      }, 300);
-
-      // Stop polling after 15s or when call ends
-      setTimeout(() => clearInterval(sidPollInterval), 15000);
-      call.on(Call.Event.Disconnected, () => clearInterval(sidPollInterval));
-      call.on(Call.Event.ConnectFailure, () => clearInterval(sidPollInterval));
-
-      console.log('[VoiceContext] Outbound call initiated, polling for SID');
-    } catch (err) {
-      console.error('[VoiceContext] Failed to make call:', err);
-      setError(err instanceof Error ? err.message : 'Failed to make call');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Failed to place call';
+      console.error('[VoiceContext] makeCall failed:', msg, err);
+      setError(msg);
+      teardownRoom();
       setCallState('idle');
     }
-  }, [getToken, userId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, mode, cleanup]);
 
+  // ---------- Incoming (Twilio path, pending Phase 2) ----------
   const acceptIncomingCall = useCallback(async () => {
     if (!incomingCallInvite) {
       setError('No incoming call to accept');
@@ -917,26 +511,20 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      // Stop ring and reset transcript
       stopIncomingRing();
       setTranscripts([]);
       setCallStartTime(Date.now());
 
-      // Accept the call
       const call = await incomingCallInvite.accept();
       setActiveCall(call);
       setCallState('active');
 
-      // Extract parentCallSid from custom parameters
       const customParams = incomingCallInvite.getCustomParameters?.() || incomingCallInvite.customParameters || {};
       const parentCallSid = parentCallSidRef.current || customParams.parentCallSid;
       const effectiveCallSid = parentCallSid || call.getSid();
-
-      // Set translation state from custom params
       const shouldTranslate = customParams.isTranslating === 'true';
       setIsTranslating(shouldTranslate);
 
-      // Set call info
       setCallInfo({
         direction: 'inbound',
         from: customParams.incomingNumber || 'Unknown',
@@ -945,18 +533,22 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       });
       setCallSid(effectiveCallSid);
 
-      // Set up call event listeners
-      const inboundCallParams = {
+      if (Call) {
+        call.on(Call.Event.Disconnected, () => {
+          setActiveCall(null);
+          setCallState('ended');
+          setCallSid(null);
+          setIsMuted(false);
+        });
+      }
+
+      createCallRecord(effectiveCallSid, {
         from: customParams.incomingNumber || 'Unknown',
         to: '',
-        direction: 'inbound' as const,
+        direction: 'inbound',
         repLang: callLanguages?.srcLang || 'en-US',
         customerLang: callLanguages?.dstLang || 'en-US',
-      };
-      setupCallEventListeners(call, inboundCallParams);
-
-      // Create call record on backend
-      createCallRecord(effectiveCallSid, inboundCallParams);
+      });
 
       setIncomingCallInvite(null);
     } catch (err) {
@@ -965,11 +557,11 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setCallState('idle');
       setIncomingCallInvite(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingCallInvite]);
 
   const rejectIncomingCall = useCallback(async () => {
     if (!incomingCallInvite) return;
-
     try {
       stopIncomingRing();
       await incomingCallInvite.reject();
@@ -983,7 +575,6 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
   const sendToVoicemail = useCallback(async () => {
     if (!incomingCallInvite) return;
-
     try {
       stopIncomingRing();
       const parentCallSid = parentCallSidRef.current;
@@ -991,7 +582,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
       if (parentCallSid) {
         const authToken = await getToken();
-        await fetch(`${API_BASE_URL}/api/calls/send-to-voicemail`, {
+        await fetch(`${API_BASE_URL}/calls/send-to-voicemail`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1008,18 +599,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [incomingCallInvite, getToken]);
 
+  // ---------- Shared call controls ----------
   const hangUp = useCallback(async () => {
-    if (!activeCall) return;
-
-    try {
-      await activeCall.disconnect();
-    } catch (err) {
-      console.error('[VoiceContext] Failed to disconnect call:', err);
+    if (roomRef.current) {
+      try { await roomRef.current.disconnect(); } catch (e) { console.warn('[VoiceContext] LK disconnect failed:', e); }
+      teardownRoom();
     }
-    shouldReconnectRef.current = false;
-    disconnectWebSocket();
-    AsyncStorage.removeItem('device-ws-instance');
-    wsInstanceRef.current = null;
+    if (activeCall) {
+      try { await activeCall.disconnect(); } catch (e) { console.warn('[VoiceContext] Twilio disconnect failed:', e); }
+    }
     setActiveCall(null);
     setCallState('ended');
     setCallSid(null);
@@ -1027,45 +615,54 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   }, [activeCall]);
 
   const toggleMute = useCallback(() => {
-    if (activeCall) {
-      const newMutedState = !isMuted;
-      activeCall.mute(newMutedState);
-      setIsMuted(newMutedState);
+    const newMutedState = !isMuted;
+    if (roomRef.current) {
+      roomRef.current.localParticipant.setMicrophoneEnabled(!newMutedState).catch((e) => {
+        console.warn('[VoiceContext] setMicrophoneEnabled failed:', e);
+      });
     }
+    if (activeCall) {
+      try { activeCall.mute(newMutedState); } catch (e) { console.warn('[VoiceContext] Twilio mute failed:', e); }
+    }
+    setIsMuted(newMutedState);
   }, [activeCall, isMuted]);
 
   const sendDigits = useCallback((digits: string) => {
     if (activeCall) {
-      activeCall.sendDigits(digits);
+      try { activeCall.sendDigits(digits); } catch (e) { console.warn('[VoiceContext] sendDigits failed:', e); }
     }
   }, [activeCall]);
 
   const toggleSpeaker = useCallback(() => {
-    // Speaker toggle is handled via audio routing
-    // This is a placeholder - actual implementation depends on expo-av or native module
-    setIsSpeakerOn(!isSpeakerOn);
-  }, [isSpeakerOn]);
+    setIsSpeakerOn((prev) => !prev);
+  }, []);
 
+  // Translation/mode/cleanup are driven via the display WebSocket. The active
+  // call screen owns the live WS connection (useDisplaySocket), so these context
+  // setters are local-state only — the screen's toggleTranslation/sendSetMode/
+  // sendSetCleanup actually transmit to the server.
   const toggleTranslation = useCallback((turnOn: boolean) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('[VoiceContext] WebSocket not connected, cannot toggle translation');
-      return;
-    }
-    const messageType = turnOn ? 'translation-on' : 'translation-off';
-    wsRef.current.send(JSON.stringify({ type: messageType, callSid }));
-  }, [callSid]);
+    setIsTranslating(turnOn);
+  }, []);
+
+  const setMode = useCallback((value: 'translator' | 'interpreter') => {
+    setModeState(value);
+    modeRef.current = value;
+    // Re-apply customer raw-mic volume for the new mode: audible in
+    // interpreter, silent in translator.
+    applyDuckableVolume(value === 'interpreter' ? 1 : 0);
+  }, []);
+
+  const setCleanup = useCallback((value: boolean) => {
+    setCleanupState(value);
+  }, []);
 
   const addTranscript = useCallback((transcript: TranscriptMessage) => {
     setTranscripts(prev => [...prev, transcript]);
   }, []);
 
-  const clearTranscripts = useCallback(() => {
-    setTranscripts([]);
-  }, []);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const clearTranscripts = useCallback(() => setTranscripts([]), []);
+  const clearError = useCallback(() => setError(null), []);
 
   const configureIntroduction = useCallback(async (
     message: string,
@@ -1075,26 +672,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     try {
       const authToken = await getToken();
       if (!authToken) return null;
-
       const response = await fetch(`${API_BASE_URL}/introduction`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`,
         },
-        body: JSON.stringify({
-          message,
-          lang: customerLang,
-          sourceLang: repLang,
-          save: true,
-        }),
+        body: JSON.stringify({ message, lang: customerLang, sourceLang: repLang, save: true }),
       });
-
-      if (!response.ok) {
-        console.error('[VoiceContext] Introduction translation failed:', response.status);
-        return null;
-      }
-
+      if (!response.ok) return null;
       const data = await response.json();
       return {
         translatedMessage: data.text || '',
@@ -1107,7 +693,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   }, [getToken]);
 
   const endCallFromServer = useCallback(() => {
-    console.log('[VoiceContext] endCallFromServer called - resetting call state');
+    teardownRoom();
     setCallState('ended');
     setCallSid(null);
     setActiveCall(null);
@@ -1115,97 +701,25 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const testVoiceSetup = useCallback(async (): Promise<{ success: boolean; message: string }> => {
-    console.log('[VoiceContext] === RUNNING TEST ===');
-
-    // Test 1: Check if Voice SDK is loaded
-    console.log('[VoiceContext] Test 1: Voice SDK loaded?', Voice !== null);
-    if (!Voice) {
-      const msg = 'FAIL: Twilio Voice SDK not loaded. Are you running in Expo Go?';
-      console.error('[VoiceContext]', msg);
-      return { success: false, message: msg };
-    }
-    console.log('[VoiceContext] PASS: Voice SDK is loaded');
-
-    // Test 2: Check if Voice instance is initialized
-    console.log('[VoiceContext] Test 2: Voice instance initialized?', voiceRef.current !== null);
-    if (!voiceRef.current) {
-      const msg = 'FAIL: Voice instance not initialized';
-      console.error('[VoiceContext]', msg);
-      return { success: false, message: msg };
-    }
-    console.log('[VoiceContext] PASS: Voice instance initialized');
-
-    // Test 3: Check authentication
-    console.log('[VoiceContext] Test 3: User authenticated?', isSignedIn);
     if (!isSignedIn) {
-      const msg = 'FAIL: User not signed in';
-      console.error('[VoiceContext]', msg);
-      return { success: false, message: msg };
+      return { success: false, message: 'FAIL: User not signed in' };
     }
-    console.log('[VoiceContext] PASS: User is signed in');
-
-    // Test 4: Fetch Clerk auth token
-    console.log('[VoiceContext] Test 4: Fetching Clerk auth token...');
-    let authToken: string | null = null;
     try {
-      authToken = await getToken();
+      const authToken = await getToken();
       if (!authToken) {
-        const msg = 'FAIL: No Clerk auth token received';
-        console.error('[VoiceContext]', msg);
-        return { success: false, message: msg };
+        return { success: false, message: 'FAIL: No Clerk auth token' };
       }
-      console.log('[VoiceContext] PASS: Clerk auth token received, length:', authToken.length);
-    } catch (err) {
-      const msg = `FAIL: Error getting Clerk token: ${err}`;
-      console.error('[VoiceContext]', msg);
-      return { success: false, message: msg };
+      const ping = await fetch(`${API_BASE_URL.replace(/\/api$/, '')}/healthz`).catch(() => null);
+      const backendOk = ping && ping.ok;
+      return {
+        success: !!backendOk,
+        message: backendOk
+          ? `PASS: Clerk auth + backend reachable. LiveKit ready (rep-${userId}).`
+          : 'WARN: Backend healthz unreachable; LiveKit dial may fail.',
+      };
+    } catch (err: any) {
+      return { success: false, message: `FAIL: ${err?.message || err}` };
     }
-
-    // Test 5: Fetch Twilio access token
-    console.log('[VoiceContext] Test 5: Fetching Twilio access token from:', `${API_BASE_URL}/accessToken`);
-    try {
-      const response = await fetch(`${API_BASE_URL}/accessToken`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          identity: userId || 'mobile_user',
-          platform: Platform.OS
-        }),
-      });
-
-      console.log('[VoiceContext] Access token response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const msg = `FAIL: Access token request failed with status ${response.status}: ${JSON.stringify(errorData)}`;
-        console.error('[VoiceContext]', msg);
-        return { success: false, message: msg };
-      }
-
-      const data = await response.json();
-      console.log('[VoiceContext] Access token response keys:', Object.keys(data));
-
-      const twilioToken = data.token || data.accessToken || data.data?.token;
-      if (!twilioToken) {
-        const msg = `FAIL: No token in response. Keys: ${Object.keys(data).join(', ')}`;
-        console.error('[VoiceContext]', msg);
-        return { success: false, message: msg };
-      }
-
-      console.log('[VoiceContext] PASS: Twilio access token received, length:', twilioToken.length);
-      console.log('[VoiceContext] Token preview:', twilioToken.substring(0, 50) + '...');
-
-    } catch (err) {
-      const msg = `FAIL: Error fetching Twilio token: ${err}`;
-      console.error('[VoiceContext]', msg);
-      return { success: false, message: msg };
-    }
-
-    console.log('[VoiceContext] === ALL TESTS PASSED ===');
-    return { success: true, message: 'All tests passed! Voice SDK loaded, authenticated, and access token received.' };
   }, [getToken, userId, isSignedIn]);
 
   const value: VoiceContextType = {
@@ -1223,6 +737,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     error,
     isRegistered,
     isVoiceSupported,
+    room,
+    mode,
+    cleanup,
     makeCall,
     acceptIncomingCall,
     rejectIncomingCall,
@@ -1235,6 +752,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     clearTranscripts,
     clearError,
     toggleTranslation,
+    setMode,
+    setCleanup,
     configureIntroduction,
     testVoiceSetup,
     endCallFromServer,

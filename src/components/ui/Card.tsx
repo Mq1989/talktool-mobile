@@ -34,15 +34,18 @@ export function Card({
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: borderRadius.lg,
+    borderRadius: borderRadius.xl,
     backgroundColor: '#fff',
   },
   elevated: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    // Wide, soft "diffusion" shadow for depth without clutter.
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
     elevation: 3,
+    borderWidth: 1,
+    borderColor: colors.gray[100],
   },
   outlined: {
     borderWidth: 1,
