@@ -221,7 +221,7 @@ export default function DashboardScreen() {
             </View>
             <TouchableOpacity
               style={styles.addMinutesBtn}
-              onPress={() => router.push('/(tabs)/settings')}
+              onPress={() => router.push('/buy-minutes')}
               activeOpacity={0.7}
             >
               <Ionicons name="add" size={18} color={colors.blue[500]} />

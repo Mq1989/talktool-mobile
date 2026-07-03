@@ -130,6 +130,11 @@ export const apiEndpoints = {
   transferBalance: (confirm: boolean) =>
     api.post('/payments/balance/transfer', { confirm }),
 
+  // Apple IAP: verify a StoreKit 2 signed transaction (JWS) and credit minutes.
+  // Idempotent server-side (keyed on the Apple transactionId).
+  iapVerifyApple: (body: { jwsRepresentation: string; productId: string }) =>
+    api.post('/payments/iap/apple/verify', body),
+
   // Transcripts & Recordings
   getTranscripts: (callSid: string) => api.get('/transcripts', { params: { callSid } }),
   getRecording: (callSid: string) => api.get(`/recordings/${callSid}`),

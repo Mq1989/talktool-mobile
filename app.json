@@ -61,7 +61,8 @@
           "color": "#2196F3",
           "mode": "production"
         }
-      ]
+      ],
+      "expo-iap"
     ],
     "extra": {
       "router": {
