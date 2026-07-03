@@ -53,6 +53,17 @@ export interface CallLanguages {
   dstLang: string;
 }
 
+// Inbound ring payload delivered over the /agent/notify socket. srcLang is the
+// customer's locale, dstLang is the rep's — matches the server's ring payload.
+export interface IncomingCallPayload {
+  callSid: string;
+  roomName: string;
+  callerNumber: string;
+  srcLang: string;
+  dstLang: string;
+  targets?: string[];
+}
+
 interface OutboundCallParams {
   toNumber: string;
   fromNumber: string;
@@ -71,6 +82,7 @@ interface VoiceContextType {
   callState: CallState;
   activeCall: any | null;
   incomingCallInvite: any | null;
+  pendingIncoming: IncomingCallPayload | null;
   isMuted: boolean;
   isSpeakerOn: boolean;
   callSid: string | null;
@@ -88,6 +100,8 @@ interface VoiceContextType {
   cleanup: boolean;
 
   makeCall: (params: OutboundCallParams) => Promise<void>;
+  presentIncomingCall: (payload: IncomingCallPayload) => void;
+  dismissIncomingCall: () => void;
   acceptIncomingCall: () => Promise<void>;
   rejectIncomingCall: () => Promise<void>;
   sendToVoicemail: () => Promise<void>;
@@ -134,6 +148,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [callState, setCallState] = useState<CallState>('idle');
   const [activeCall, setActiveCall] = useState<any | null>(null);
   const [incomingCallInvite, setIncomingCallInvite] = useState<any | null>(null);
+  // LiveKit-based inbound ring (foreground path via /agent/notify).
+  const [pendingIncoming, setPendingIncoming] = useState<IncomingCallPayload | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callSid, setCallSid] = useState<string | null>(null);
@@ -510,75 +526,124 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, mode, cleanup]);
 
-  // ---------- Incoming (Twilio path, pending Phase 2) ----------
+  // ---------- Incoming (LiveKit foreground path via /agent/notify) ----------
+  // Present an inbound ring: populate caller info + languages and start ringing.
+  // Called by the notify-socket controller when an `incoming-call` event lands.
+  const presentIncomingCall = useCallback((payload: IncomingCallPayload) => {
+    setPendingIncoming(payload);
+    setCallInfo({
+      direction: 'inbound',
+      from: payload.callerNumber,
+      to: '',
+      callSid: payload.callSid,
+    });
+    // Ring payload: srcLang = customer locale, dstLang = rep locale.
+    setCallLanguages({ srcLang: payload.srcLang, dstLang: payload.dstLang });
+    setCallState('incoming');
+    playIncomingRing();
+  }, []);
+
+  // Dismiss a ring without answering (caller hung up / answered elsewhere).
+  const dismissIncomingCall = useCallback(() => {
+    stopIncomingRing();
+    setPendingIncoming(null);
+    setCallState('idle');
+  }, []);
+
   const acceptIncomingCall = useCallback(async () => {
-    if (!incomingCallInvite) {
+    if (!pendingIncoming) {
       setError('No incoming call to accept');
       return;
     }
+    const incoming = pendingIncoming;
 
     try {
       stopIncomingRing();
       setTranscripts([]);
-      setCallStartTime(Date.now());
 
-      const call = await incomingCallInvite.accept();
-      setActiveCall(call);
-      setCallState('active');
+      const identity = `rep-${userId || ''}`;
 
-      const customParams = incomingCallInvite.getCustomParameters?.() || incomingCallInvite.customParameters || {};
-      const parentCallSid = parentCallSidRef.current || customParams.parentCallSid;
-      const effectiveCallSid = parentCallSid || call.getSid();
-      const shouldTranslate = customParams.isTranslating === 'true';
-      setIsTranslating(shouldTranslate);
-
-      setCallInfo({
-        direction: 'inbound',
-        from: customParams.incomingNumber || 'Unknown',
-        to: '',
-        callSid: effectiveCallSid,
-      });
-      setCallSid(effectiveCallSid);
-
-      if (Call) {
-        call.on(Call.Event.Disconnected, () => {
-          setActiveCall(null);
-          setCallState('ended');
-          setCallSid(null);
-          setIsMuted(false);
-        });
+      let res;
+      try {
+        res = await livekitService.acceptInbound({ callSid: incoming.callSid, identity });
+      } catch (err: any) {
+        // 409 = another agent already answered this call.
+        if (err?.response?.status === 409) {
+          setError('Call was answered on another device');
+          setPendingIncoming(null);
+          setCallState('idle');
+          return;
+        }
+        throw err;
       }
 
-      createCallRecord(effectiveCallSid, {
-        from: customParams.incomingNumber || 'Unknown',
-        to: '',
-        direction: 'inbound',
-        repLang: callLanguages?.srcLang || 'en-US',
-        customerLang: callLanguages?.dstLang || 'en-US',
+      // Configure iOS audio session for VoIP-style playback + recording
+      // (identical to the outbound path).
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: true,
       });
 
-      setIncomingCallInvite(null);
-    } catch (err) {
-      console.error('[VoiceContext] Failed to accept call:', err);
+      const r = new Room({ adaptiveStream: true, dynacast: true });
+      roomRef.current = r;
+      roomNameRef.current = res.roomName;
+      repIdentityRef.current = res.identity;
+      parentCallSidRef.current = incoming.callSid;
+      wireRoomEvents(r);
+
+      await r.connect(res.livekitUrl, res.token);
+      await r.localParticipant.setMicrophoneEnabled(true);
+
+      setRoom(r);
+      setCallSid(incoming.callSid);
+      // Inbound has no place-call display token. The display socket runs
+      // unauthenticated (log-only in dev). Prod enforcement needs a token minted
+      // in the accept response — tracked as a follow-up in the plan.
+      setDisplayToken(null);
+      setCallInfo({
+        direction: 'inbound',
+        from: incoming.callerNumber,
+        to: '',
+        callSid: incoming.callSid,
+      });
+      // The customer is already on the line, so we go straight to 'active'
+      // (unlike outbound, which waits for 'call-answered').
+      setCallStartTime(Date.now());
+      setCallState('active');
+      setPendingIncoming(null);
+
+      createCallRecord(incoming.callSid, {
+        from: incoming.callerNumber,
+        to: '',
+        direction: 'inbound',
+        repLang: incoming.dstLang,
+        customerLang: incoming.srcLang,
+      });
+    } catch (err: any) {
+      console.error('[VoiceContext] Failed to accept incoming call:', err);
       setError(err instanceof Error ? err.message : 'Failed to accept call');
+      teardownRoom();
+      setPendingIncoming(null);
       setCallState('idle');
-      setIncomingCallInvite(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomingCallInvite]);
+  }, [pendingIncoming, userId]);
 
   const rejectIncomingCall = useCallback(async () => {
-    if (!incomingCallInvite) return;
+    if (!pendingIncoming) return;
+    const incoming = pendingIncoming;
     try {
       stopIncomingRing();
-      await incomingCallInvite.reject();
+      const identity = `rep-${userId || ''}`;
+      await livekitService.declineInbound({ callSid: incoming.callSid, identity });
     } catch (err) {
-      console.error('[VoiceContext] Failed to reject call:', err);
+      console.error('[VoiceContext] Failed to decline incoming call:', err);
     } finally {
-      setIncomingCallInvite(null);
+      setPendingIncoming(null);
       setCallState('idle');
     }
-  }, [incomingCallInvite]);
+  }, [pendingIncoming, userId]);
 
   const sendToVoicemail = useCallback(async () => {
     if (!incomingCallInvite) return;
@@ -735,6 +800,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     callState,
     activeCall,
     incomingCallInvite,
+    pendingIncoming,
     isMuted,
     isSpeakerOn,
     callSid,
@@ -751,6 +817,8 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     mode,
     cleanup,
     makeCall,
+    presentIncomingCall,
+    dismissIncomingCall,
     acceptIncomingCall,
     rejectIncomingCall,
     sendToVoicemail,

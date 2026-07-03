@@ -66,4 +66,17 @@ export const livekitService = {
     });
     return response.data;
   },
+
+  // Accept an inbound call this device was rung for (via /agent/notify).
+  // identity must be `rep-<clerkUserId>`. Returns the LiveKit room + token to
+  // join. Throws with HTTP 409 if another agent already answered.
+  acceptInbound: async (body: { callSid: string; identity: string }): Promise<RefreshTokenResponse> => {
+    const response = await lkApi.post<RefreshTokenResponse>('/livekit/inbound/accept', body);
+    return response.data;
+  },
+
+  // Decline an inbound call this device was rung for. identity = `rep-<userId>`.
+  declineInbound: async (body: { callSid: string; identity: string }): Promise<void> => {
+    await lkApi.post('/livekit/inbound/decline', body);
+  },
 };

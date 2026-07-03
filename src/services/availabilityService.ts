@@ -24,6 +24,21 @@ let state: AvailabilityState = {
   deviceId: Device.deviceName || `device_${Date.now()}`,
 };
 
+// Observable availability: the incoming-call notify socket subscribes so it can
+// open only while the user is "available" (and the required heartbeat is live).
+// notifyListeners() fires on every isAvailable transition via start/stopHeartbeat.
+type AvailabilityListener = () => void;
+const listeners = new Set<AvailabilityListener>();
+const notifyListeners = () => {
+  for (const listener of listeners) {
+    try {
+      listener();
+    } catch (e) {
+      console.warn('[availabilityService] listener error:', e);
+    }
+  }
+};
+
 const sendHeartbeat = async () => {
   if (!state.isAvailable || state.activeNumbers.length === 0 || !state.userId || !state.orgId) {
     return;
@@ -71,6 +86,9 @@ const startHeartbeat = () => {
 
   // Start periodic heartbeat
   state.heartbeatInterval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+
+  // isAvailable has just become (or stayed) true — notify subscribers.
+  notifyListeners();
 };
 
 const stopHeartbeat = () => {
@@ -78,6 +96,8 @@ const stopHeartbeat = () => {
     clearInterval(state.heartbeatInterval);
     state.heartbeatInterval = null;
   }
+  // isAvailable has just become false (or is confirmed off) — notify subscribers.
+  notifyListeners();
 };
 
 export const availabilityService = {
@@ -329,6 +349,17 @@ export const availabilityService = {
       activeNumbers: [...state.activeNumbers],
       userId: state.userId,
       orgId: state.orgId,
+    };
+  },
+
+  /**
+   * Subscribe to availability changes. The callback fires on every isAvailable
+   * transition; read the latest value via getState(). Returns an unsubscribe fn.
+   */
+  subscribe(listener: AvailabilityListener): () => void {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
     };
   },
 };

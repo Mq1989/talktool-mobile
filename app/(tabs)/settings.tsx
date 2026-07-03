@@ -90,7 +90,11 @@ const colors = {
 };
 
 interface NumberConfig {
-  phoneNumber: string;
+  // The list endpoint returns `number` (E.164). Historically this was mistyped
+  // as `phoneNumber`, which silently registered agents into a queue keyed by
+  // `undefined` so incoming calls never rang. Keep this aligned with the
+  // canonical NumberConfig in src/types/call.types.ts.
+  number: string;
   friendlyName?: string;
   isShared?: boolean;
 }
@@ -180,9 +184,15 @@ export default function SettingsScreen() {
   // Get balance data
   const { minutes, formattedMinutes, isOrgBalance, isLoading: isBalanceLoading } = useBalance();
 
-  // Availability state
-  const [isAvailable, setIsAvailable] = useState(false);
-  const [availableNumbers, setAvailableNumbers] = useState<string[]>([]);
+  // Availability state — initialized from and kept in sync with the shared
+  // availabilityService (owned app-wide by IncomingCallController), so the
+  // toggle reflects true availability even after navigating away and back.
+  const [isAvailable, setIsAvailable] = useState(
+    () => availabilityService.getState().isAvailable,
+  );
+  const [availableNumbers, setAvailableNumbers] = useState<string[]>(
+    () => availabilityService.getState().activeNumbers,
+  );
 
   // Fetch user's phone numbers
   const { data: numberConfigs } = useQuery<NumberConfig[]>({
@@ -205,17 +215,26 @@ export default function SettingsScreen() {
     const orgId = organization?.id;
 
     if (userId && orgId) {
-      availabilityService.init(userId, orgId);
+      availabilityService.setCredentials(userId, orgId);
     }
 
-    return () => {
-      availabilityService.cleanup();
+    // Keep the toggle in sync with the shared service. Do NOT cleanup()/
+    // setUnavailable() on unmount — availability is owned app-wide by
+    // IncomingCallController so incoming calls keep working when you leave this
+    // screen. Logout still calls setUnavailable() explicitly.
+    const sync = () => {
+      const s = availabilityService.getState();
+      setIsAvailable(s.isAvailable);
+      setAvailableNumbers(s.activeNumbers);
     };
+    const unsubscribe = availabilityService.subscribe(sync);
+    sync();
+    return unsubscribe;
   }, [clerkUser?.id, organization?.id]);
 
   const handleAvailabilityToggle = async (value: boolean) => {
     if (value && dedicatedNumbers.length > 0) {
-      const numbers = dedicatedNumbers.map(n => n.phoneNumber);
+      const numbers = dedicatedNumbers.map(n => n.number);
       await availabilityService.setAvailable(numbers);
       setAvailableNumbers(numbers);
     } else {
@@ -304,7 +323,6 @@ export default function SettingsScreen() {
             }
             showArrow={false}
             isFirst
-            isLast={!isRegistered && canUseAvailability}
           />
           {!canUseAvailability && (
             <View style={styles.disabledExplanation}>
@@ -325,6 +343,14 @@ export default function SettingsScreen() {
               </Text>
             </View>
           )}
+          <SettingRow
+            icon="call"
+            iconColor={colors.blue[500]}
+            iconBg={colors.blue[50]}
+            label="Incoming Call Settings"
+            onPress={() => router.push('/numbers')}
+            isLast
+          />
         </SettingsCard>
 
         {/* Preferences Section */}

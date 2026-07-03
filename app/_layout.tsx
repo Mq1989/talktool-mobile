@@ -6,6 +6,7 @@ import { ClerkProvider, ClerkLoaded } from '@clerk/clerk-expo';
 import { tokenCache } from '../src/utils/tokenCache';
 import { CLERK_PUBLISHABLE_KEY } from '../src/utils/constants';
 import { VoiceProvider } from '../src/contexts/VoiceContext';
+import { IncomingCallController } from '../src/hooks/useIncomingCall';
 
 // Note: LiveKit registerGlobals() runs in /index.js before expo-router boots,
 // so app/_layout.tsx doesn't need to call it.
@@ -31,6 +32,9 @@ export default function RootLayout() {
           <SafeAreaProvider>
             <VoiceProvider>
               <StatusBar style="dark" />
+              {/* Listens for inbound-call ring events while "available" and
+                  routes to the incoming-call screen (foreground path). */}
+              <IncomingCallController />
               <Slot />
             </VoiceProvider>
           </SafeAreaProvider>

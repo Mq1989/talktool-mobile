@@ -12,16 +12,16 @@ import { getLanguageFlag, getLanguageName } from '../../src/utils/languages';
 export default function IncomingCallScreen() {
   const router = useRouter();
   const {
-    incomingCallInvite,
+    pendingIncoming,
     callState,
     callSid,
     acceptIncomingCall,
     rejectIncomingCall,
   } = useVoice();
 
-  // Vibrate when incoming call
+  // Vibrate while ringing
   useEffect(() => {
-    if (incomingCallInvite) {
+    if (pendingIncoming) {
       // Vibrate pattern: vibrate 500ms, pause 500ms, repeat
       const pattern = [0, 500, 500, 500, 500, 500];
       Vibration.vibrate(pattern, true);
@@ -30,9 +30,10 @@ export default function IncomingCallScreen() {
     return () => {
       Vibration.cancel();
     };
-  }, [incomingCallInvite]);
+  }, [pendingIncoming]);
 
-  // Navigate to active call screen when call is accepted
+  // Navigate to the active call screen once accepted (acceptIncomingCall sets
+  // both callState='active' and callSid).
   useEffect(() => {
     if (callState === 'active' && callSid) {
       Vibration.cancel();
@@ -40,12 +41,13 @@ export default function IncomingCallScreen() {
     }
   }, [callState, callSid, router]);
 
-  // If no incoming call, redirect back
+  // If the ring was dismissed (declined / caller hung up / answered elsewhere),
+  // go back. Guard on 'active' so we don't race the accept navigation above.
   useEffect(() => {
-    if (!incomingCallInvite && callState === 'idle') {
+    if (!pendingIncoming && callState !== 'active') {
       router.replace('/(tabs)');
     }
-  }, [incomingCallInvite, callState, router]);
+  }, [pendingIncoming, callState, router]);
 
   const handleAccept = async () => {
     Vibration.cancel();
@@ -58,12 +60,12 @@ export default function IncomingCallScreen() {
     router.replace('/(tabs)');
   };
 
-  // Get call info from invite custom parameters
-  const customParams = incomingCallInvite?.getCustomParameters?.() ?? {};
-  const callerNumber = customParams.From || incomingCallInvite?.getFrom?.() || 'Unknown';
-  const callerName = customParams.CallerName || callerNumber;
-  const fromLanguage = customParams.fromLanguage || 'en';
-  const toLanguage = customParams.toLanguage || 'en';
+  // Caller + language info from the /agent/notify ring payload.
+  // srcLang = customer locale, dstLang = rep locale.
+  const callerNumber = pendingIncoming?.callerNumber || 'Unknown';
+  const callerName = callerNumber;
+  const fromLanguage = pendingIncoming?.srcLang || 'en';
+  const toLanguage = pendingIncoming?.dstLang || 'en';
 
   return (
     <SafeAreaView style={styles.container}>
